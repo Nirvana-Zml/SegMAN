@@ -403,6 +403,155 @@ fix5k 对照见《路线B_LASS_MMSCopE_实施清单.md》**§0.1**。
 
 评测产物目录：`outputs/trans10k_lass_mmscope_balanced10k/eval_iter_{6000,8000,10000}/`。
 
+### 8.6 bowl 回落诊断（方案 3，2026-05-23）
+
+**背景**：balanced10k `iter_10000` 总 mIoU **81.76%**，但 **bowl IoU 74.31%**（基线 78.91%，约 **−4.60%**）。在启动 **方案 1（bowl 专项微调）** 前，先完成方案 3：**定量测试 → 可视化 → 像素级混淆统计**。
+
+**诊断对象**：`outputs/trans10k_lass_mmscope_balanced10k/iter_10000.pth`  
+**配置**：`local_configs/segman_trans/segman_b_trans10k_lass_balanced.py`  
+**数据**：Trans10K **val 1000 张**（与 §8 评测一致）
+
+#### 8.6.1 方案 3 步骤与命令
+
+| 步骤 | 内容 | 状态 |
+|------|------|------|
+| 3.0 | `tools/test.py --eval mIoU` | ✅ 见 §8.2（bowl 74.31%，Acc 82.28%） |
+| 3.1 | 可视化叠加图 | ✅ |
+| 3.2 | GT=bowl 像素上的预测类直方图 | ✅ |
+
+**3.0 / 3.1（Docker，`segmentation` 目录）**：
+
+```bash
+python tools/test.py local_configs/segman_trans/segman_b_trans10k_lass_balanced.py \
+  --checkpoint outputs/trans10k_lass_mmscope_balanced10k/iter_10000.pth \
+  --eval mIoU \
+  --show-dir outputs/trans10k_lass_mmscope_balanced10k/vis_bowl_debug
+```
+
+- 输出目录：`outputs/trans10k_lass_mmscope_balanced10k/vis_bowl_debug/`（**1000** 张，原图 | GT | 预测 拼接）
+- 目视重点：bowl 区域是否被 **background** 挖空、是否与 **cup** 粘连混淆
+
+**3.2 混淆统计脚本**：
+
+```bash
+python scripts/analyze_bowl_confusion.py \
+  local_configs/segman_trans/segman_b_trans10k_lass_balanced.py \
+  --checkpoint outputs/trans10k_lass_mmscope_balanced10k/iter_10000.pth
+```
+
+- 脚本：`segmentation/scripts/analyze_bowl_confusion.py`（推理路径与 `tools/test.py` 一致：`DataLoader` + `MMDataParallel` + `return_loss=False`；GT 从 `ann_dir` 读取）
+
+#### 8.6.2 方案 3.2 定量结果（iter_10000）
+
+| 统计项 | 数值 |
+|--------|------|
+| val 中含 bowl GT 的图像数 | **30 / 1000** |
+| bowl GT 像素总数 | **5,449,066** |
+| bowl 像素 recall（GT=bowl 上预测为 bowl） | **82.28%** |
+| test 表 bowl Acc（同一次 test） | **82.28%**（与 recall 一致） |
+| test 表 bowl IoU | **74.31%** |
+
+**在 GT=bowl 的像素上，预测类别分布**：
+
+| 预测类 | 像素数 | 占比 | 说明 |
+|--------|--------|------|------|
+| **bowl**（正确） | 4,483,372 | **82.28%** | 与 recall 一致 |
+| background | 506,200 | **9.29%** | 碗内/边缘漏检、透明区域被当成背景 |
+| cup | 337,503 | **6.19%** | 与 cup 语义混淆（balanced 中 cup class_weight=1.05 + Dice 0.4 可能加剧） |
+| jar_kettle | 64,450 | 1.18% | 次要 |
+| box | 57,541 | 1.06% | 次要 |
+| 其它类 | 0 | 0% | — |
+
+**Top 错分（非 bowl）**：background **9.29%** → cup **6.19%** → jar_kettle 1.18% → box 1.06%。
+
+#### 8.6.3 结论（对方案 1 的启示）
+
+1. **recall（82.28%）与 IoU（74.31%）差距大**：说明除「bowl 像素被标错」外，还存在 **误检 bowl**（precision 不足），仅拉高 class_weight 不够，需兼顾边界与 cup/background 竞争。
+2. **主因是 background 漏检（9.29%）**，其次 **cup 混淆（6.19%）**；与 balanced  recipe（Dice 0.4、`enable_stages=[1,2]`、cup 1.05）及 window 大幅增益时的表征偏移一致。
+3. val 仅 **30 张**含 bowl，**bowl IoU 方差大**；像素级统计样本量仍充足（约 545 万像素），结论可信。
+4. **方案 1 建议**（已落配置 `segman_b_trans10k_lass_balanced_bowl.py`）：从 **fix5k** `iter_5000.pth` 短训 **5k**；bowl class_weight **1.18**、cup **1.0**、Dice **0.15**、LASS **stage 0–2**、边界 **0.12**；work-dir `outputs/trans10k_lass_mmscope_balanced_bowl5k`。详见 §10（待训练后补结果）。
+
+---
+
+## 10. bowl 专项微调（方案 1，2026-05-23）
+
+| 项目 | 内容 |
+|------|------|
+| 配置 | `local_configs/segman_trans/segman_b_trans10k_lass_balanced_bowl.py` |
+| 初始权重 | `outputs/trans10k_lass_mmscope_fix5k/iter_5000.pth` |
+| work-dir | `outputs/trans10k_lass_mmscope_balanced_bowl5k` |
+| max_iters | 5000 |
+| 评测权重 | `iter_5000.pth`（Trans10K val 1000 张） |
+
+### 10.1 验收结论
+
+| 验收项 | 阈值 | 结果 | 判定 |
+|--------|------|------|------|
+| bowl IoU | ≥ 78%（目标≈fix5k 80.07） | **80.25%** | ☑ 通过 |
+| mIoU | ≥ 80.71% | **79.15%** | ✗ 未通过（−1.56 vs 基线） |
+
+**小结**：方案 1 **达成 bowl 回升**（相对 balanced10k 74.31 **+5.94**；相对基线 78.91 **+1.34**；略优于 fix5k 80.07 **+0.18**），但以 **总 mIoU 与 shelf 等类** 为代价，**不宜替代 fix5k / balanced10k 作主推权重**。
+
+### 10.2 test 结果（%）
+
+| 类别 | 基线 | fix5k | balanced10k | **bowl5k** | Δ vs 基线 |
+|------|------|-------|-------------|------------|-----------|
+| background | 96.71 | — | 96.45 | 95.44 | −1.27 |
+| box | 71.47 | — | 71.86 | 70.89 | −0.58 |
+| bottle | 87.77 | — | 88.20 | 83.96 | −3.81 |
+| window | 66.62 | 76.27 | **82.91** | 71.92 | +5.30 |
+| eyeglass | 92.85 | — | 92.01 | 89.89 | −2.96 |
+| freezer | 73.90 | — | 73.48 | 75.80 | +1.90 |
+| jar_kettle | 84.04 | — | 83.89 | 81.37 | −2.67 |
+| door | 75.04 | — | 74.40 | 71.47 | −3.57 |
+| cup | 90.91 | — | 90.96 | 90.04 | −0.87 |
+| wall | 82.72 | — | 83.95 | 80.23 | −2.49 |
+| **bowl** | 78.91 | 80.07 | 74.31 | **80.25** | **+1.34** |
+| shelf | 67.61 | — | 68.73 | **58.47** | **−9.14** |
+| **mIoU** | **80.71** | **80.84** | **81.76** | **79.15** | **−1.56** |
+
+Summary：aAcc **95.19%**，mAcc **87.86%**。
+
+### 10.3 与方案 3 的对应关系
+
+- 方案 3 针对 **balanced10k** 的 bowl 漏检（background 9.29%、cup 6.19%）；方案 1 从 **fix5k** 再训后 **bowl 已回到基线之上**，说明 **cup/背景混淆在 fix5k 起点上可被压住**。
+- **shelf 58.47%** 为意外大幅回落，可能因 bowl 加权 + 全 stage LASS 与边界 0.12 的联合扰动；若需交付，**勿用 bowl5k 作通用权重**。
+
+### 10.4 权重选用（更新）
+
+| 场景 | 推荐权重 |
+|------|----------|
+| **mIoU 最高** | `balanced10k/iter_10000.pth`（81.76%） |
+| **稳妥 + bowl 尚可** | `fix5k/iter_5000.pth`（80.84%，bowl 80.07） |
+| **类均衡（↑ 类多）** | `balanced10k/iter_6000.pth`（80.83%） |
+| **仅修复 balanced 的 bowl** | `bowl5k/iter_5000.pth`（bowl 80.25%，mIoU 79.15%） |
+| 路线 C / 论文主表 | 仍优先 **fix5k** 或 **balanced10k/iter_10000**，不用 bowl5k |
+
+### 10.5 命令备查
+
+**训练**：
+
+```bash
+mkdir -p outputs/trans10k_lass_mmscope_balanced_bowl5k
+
+nohup python tools/train.py \
+  local_configs/segman_trans/segman_b_trans10k_lass_balanced_bowl.py \
+  --work-dir outputs/trans10k_lass_mmscope_balanced_bowl5k \
+  --load-from outputs/trans10k_lass_mmscope_fix5k/iter_5000.pth \
+  --no-validate \
+  --cfg-options data.workers_per_gpu=2 \
+  > outputs/trans10k_lass_mmscope_balanced_bowl5k/train.log 2>&1 &
+```
+
+**评测**：
+
+```bash
+python tools/test.py \
+  local_configs/segman_trans/segman_b_trans10k_lass_balanced_bowl.py \
+  --checkpoint outputs/trans10k_lass_mmscope_balanced_bowl5k/iter_5000.pth \
+  --eval mIoU
+```
+
 ---
 
 ## 9. 修订记录
@@ -411,3 +560,5 @@ fix5k 对照见《路线B_LASS_MMSCopE_实施清单.md》**§0.1**。
 |------|------|
 | 2026-05-23 | 初版：平衡微调动机、超参、命令、验收标准 |
 | 2026-05-23 | §8：填入 balanced10k 训练完成与 6k/8k/10k test 结果 |
+| 2026-05-23 | §8.6：方案 3 bowl 诊断（vis + analyze_bowl_confusion）；§10：方案 1 命令占位 |
+| 2026-05-23 | §10：方案 1 bowl5k test（mIoU 79.15%，bowl 80.25%） |

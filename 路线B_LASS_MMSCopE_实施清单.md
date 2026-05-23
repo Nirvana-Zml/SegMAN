@@ -195,6 +195,10 @@ python scripts/check_ckpt_load.py   # 确认 test 时 missing=0
 
 **说明**：**bowl** 在 6k/8k/10k 均明显低于基线；**window** 为路线 B 最大增益。**iter_6000** 时 ↑ 类数最多（6 类），但 window 仅 +2.79。
 
+**bowl 回落诊断（方案 3，已完成）**：对 `iter_10000` 做 vis + `scripts/analyze_bowl_confusion.py`；GT=bowl 像素上错分主要为 **background 9.29%**、**cup 6.19%**。详见 **《路线B_平衡微调方案.md》§8.6**。
+
+**bowl 专项微调（方案 1，已完成）**：`bowl5k/iter_5000.pth`，mIoU **79.15%**（未达 80.71%），bowl **80.25%**（达标）；**shelf 58.47%** 大幅回落。不宜作主推权重；见同文档 **§10**。
+
 ### 权重选用建议
 
 | 场景 | 权重 |
