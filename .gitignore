@@ -1,0 +1,161 @@
+# =============================================================================
+# SegMAN 项目 .gitignore
+# 仅提交源码、配置与文档；大文件与本地产物不纳入版本库
+# =============================================================================
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyd
+.Python
+*.egg
+*.egg-info/
+.eggs/
+dist/
+build/
+pip-wheel-metadata/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+*.manifest
+*.spec
+
+# --- 虚拟环境 / Conda ---
+.env
+.env.*
+.venv/
+venv/
+env/
+ENV/
+.conda/
+
+# --- IDE / 编辑器 ---
+.vscode/
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
+
+# Cursor（本地会话，非团队共享配置）
+.cursor/
+
+# --- 操作系统 ---
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# --- Jupyter ---
+.ipynb_checkpoints/
+*.ipynb_checkpoints/
+
+# --- 日志与临时文件 ---
+*.log
+*.log.json
+train.log
+*.tmp
+*.temp
+*.bak
+*.cache
+
+# --- 训练 / 评测产物（MMSeg）---
+segmentation/outputs/
+segmentation/work_dirs/
+outputs/
+work_dirs/
+
+# checkpoint 与权重（体积大，需自行下载或训练生成）
+*.pth
+*.pth.tar
+*.pt
+*.ckpt
+*.safetensors
+latest.pth
+best_*.pth
+iter_*.pth
+
+# --- 预训练与外部权重目录 ---
+pretrained/
+!pretrained/.gitkeep
+
+# --- 数据集（Trans10K 等，不提交原始数据）---
+data/
+!data/.gitkeep
+segmentation/data/
+!segmentation/data/.gitkeep
+
+# --- CUDA / 扩展编译产物（kernels、natten 等本地 build）---
+*.o
+*.obj
+*.lib
+*.a
+*.dll
+*.exp
+*.cu.o
+*.ninja
+*.ninja_log
+compile_commands.json
+kernels/**/build/
+kernels/**/dist/
+kernels/**/*.egg-info/
+
+# segmentation 本地 editable 安装残留
+segmentation/*.egg-info/
+segmentation/build/
+
+# --- 可视化 / 导出 / 实验跟踪 ---
+vis/
+visualization/
+runs/
+tensorboard/
+tb_logs/
+wandb/
+mlruns/
+.gradio/
+
+# 推理/评测导出（按需保留小样本可单独 `git add -f`）
+results/
+preds/
+predictions/
+eval_vis/
+
+# --- transgrasp（路线 C，若后续生成）---
+transgrasp/weights/
+transgrasp/**/features/
+transgrasp/**/*.npy
+
+# --- 压缩包与大文件 ---
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+*.gz
+*.bz2
+
+# --- Docker 本地挂载缓存（若有）---
+.docker/
+docker-volumes/
+
+# --- 密钥与本地配置（勿提交）---
+secrets/
+*.pem
+*.key
+credentials.json
+local_settings.py
+*_local.py
