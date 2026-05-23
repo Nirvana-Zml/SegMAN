@@ -554,6 +554,122 @@ python tools/test.py \
 
 ---
 
+## 11. bowl 修补微调（方案 1b：从 balanced10k iter_10000）
+
+**动机**：方案 1（fix5k→bowl5k）bowl **80.25%** 但 mIoU **79.15%**；若需 **保留 iter_10000 的 81.76% mIoU / window**，应在 **`balanced10k/iter_10000.pth`** 上 **短程、弱扰动** 微调。
+
+| 项目 | 内容 |
+|------|------|
+| 配置 | `local_configs/segman_trans/segman_b_trans10k_lass_balanced_bowl_from10k.py` |
+| 初始权重 | `outputs/trans10k_lass_mmscope_balanced10k/iter_10000.pth` |
+| work-dir | `outputs/trans10k_lass_mmscope_balanced_bowl3k_from10k` |
+| max_iters / lr | **3000** / **1.5e-5** |
+| 相对 balanced10k | cup **1.0**、bowl **1.10**、Dice **0.1**（原 0.4）、LASS **stage [1,2]** 不变、新模块 lr_mult **4×**（原 6×） |
+| 验收 | mIoU **≥ 80.71%**（理想 ≥81%）；bowl **≥ 78.91%**（理想 ≥79.5%） |
+
+### 11.1 训练与评测命令（Docker，`segmentation`）
+
+```bash
+mkdir -p outputs/trans10k_lass_mmscope_balanced_bowl3k_from10k
+
+nohup python tools/train.py \
+  local_configs/segman_trans/segman_b_trans10k_lass_balanced_bowl_from10k.py \
+  --work-dir outputs/trans10k_lass_mmscope_balanced_bowl3k_from10k \
+  --load-from outputs/trans10k_lass_mmscope_balanced10k/iter_10000.pth \
+  --no-validate \
+  --cfg-options data.workers_per_gpu=2 \
+  > outputs/trans10k_lass_mmscope_balanced_bowl3k_from10k/train.log 2>&1 &
+```
+
+查看进度：
+
+```bash
+tail -f outputs/trans10k_lass_mmscope_balanced_bowl3k_from10k/train.log
+```
+
+**评测**（建议 `iter_1000` / `iter_2000` / `iter_3000` 各测一次，取 mIoU 与 bowl 折中最佳）：
+
+```bash
+for it in 1000 2000 3000; do
+  python tools/test.py \
+    local_configs/segman_trans/segman_b_trans10k_lass_balanced_bowl_from10k.py \
+    --checkpoint outputs/trans10k_lass_mmscope_balanced_bowl3k_from10k/iter_${it}.pth \
+    --eval mIoU
+done
+```
+
+可选：对最佳 checkpoint 再跑 bowl 混淆：
+
+```bash
+python scripts/analyze_bowl_confusion.py \
+  local_configs/segman_trans/segman_b_trans10k_lass_balanced_bowl_from10k.py \
+  --checkpoint outputs/trans10k_lass_mmscope_balanced_bowl3k_from10k/iter_3000.pth
+```
+
+### 11.2 验收结论（2026-05-23，val 1000 张）
+
+| 验收项 | 阈值 | iter_1000 | iter_2000 | iter_3000 |
+|--------|------|-----------|-----------|-----------|
+| mIoU | ≥ 80.71% | ☑ **81.04** | ✗ 80.02 | ✗ 80.00 |
+| bowl IoU | ≥ 78.91% | ✗ 69.28 | ✗ 73.68 | ✗ 75.19 |
+
+**结论**：方案 1b **未同时达标**。随 iter 增加，**bowl 缓慢回升**（69.28→75.19），但 **mIoU / window 持续下降**；**无任何 checkpoint 优于「直接用 iter_10000」或 fix5k 的 bowl+mIoU 组合**。
+
+### 11.3 checkpoint 总览
+
+| checkpoint | mIoU | Δ vs 基线 | Δ vs iter_10000 | bowl | Δ bowl vs 基线 | window | Δ window vs 10000 |
+|------------|------|-----------|-----------------|------|----------------|--------|-------------------|
+| iter_10000（起点） | 81.76 | +1.05 | — | 74.31 | −4.60 | 82.91 | — |
+| **iter_1000** | **81.04** | +0.33 | −0.72 | **69.28** | **−9.63** | **83.50** | +0.59 |
+| iter_2000 | 80.02 | −0.69 | −1.74 | 73.68 | −5.23 | 69.97 | −12.94 |
+| iter_3000 | 80.00 | −0.71 | −1.76 | **75.19** | −3.72 | 69.90 | −13.01 |
+| fix5k（对照） | 80.84 | +0.13 | — | 80.07 | +1.16 | 76.27 | — |
+| bowl5k（对照） | 79.15 | −1.56 | — | 80.25 | +1.34 | 71.92 | — |
+
+**趋势（1b 三次）**：
+
+```text
+iter:     1000    2000    3000
+mIoU:     81.04 → 80.02 → 80.00   （↓，略低于基线 80.71）
+bowl:     69.28 → 73.68 → 75.19   （↑，仍低于基线 78.91 与起点 74.31→仅 3k 略好于起点 +0.88）
+window:   83.50 → 69.97 → 69.90   （先高后崩，2k/3k 远低于 iter_10000）
+```
+
+- **iter_1000**：mIoU 仍 **81.04**（三类 1b 最高），window **83.50** 接近 iter_10000，但 **bowl 69.28 为三次最差**（比微调前 74.31 还低 **5%**）——早期步数对 bowl 有 **负向冲击**。
+- **iter_2000 / 3000**：mIoU 卡在 **≈80.0**（**未达 80.71**），bowl 回升至 73.68 / 75.19，但 **window 从 83.5 跌至 ≈70**（相对 iter_10000 **约 −13%**），出现与 bowl5k 类似的 **window–bowl 跷跷板**。
+
+### 11.4 逐类 IoU（%）
+
+| 类别 | 基线 | iter_10000 | iter_1k | iter_2k | iter_3k | 三次中最佳 |
+|------|------|------------|---------|---------|---------|------------|
+| background | 96.71 | 96.45 | 96.55 | 96.36 | 96.29 | 1k |
+| box | 71.47 | 71.86 | 66.87 | 71.41 | 68.88 | 2k |
+| bottle | 87.77 | 88.20 | **88.95** | 87.51 | 87.37 | 1k |
+| window | 66.62 | **82.91** | **83.50** | 69.97 | 69.90 | **1k** |
+| eyeglass | 92.85 | 92.01 | 91.78 | 91.46 | 91.67 | 1k |
+| freezer | 73.90 | 73.48 | 73.84 | 72.98 | 73.98 | 1k |
+| jar_kettle | 84.04 | 83.89 | 80.36 | 83.91 | 82.46 | 2k |
+| door | 75.04 | 74.40 | **75.75** | 75.48 | 73.91 | 1k |
+| cup | 90.91 | 90.96 | 90.72 | 90.69 | 90.35 | 1k |
+| wall | 82.72 | 83.95 | **84.50** | 83.04 | 81.98 | 1k |
+| **bowl** | **78.91** | 74.31 | 69.28 | 73.68 | **75.19** | **3k** |
+| shelf | 67.61 | 68.73 | **70.45** | 63.81 | 68.00 | 1k |
+| **mIoU** | **80.71** | **81.76** | **81.04** | 80.02 | 80.00 | **1k** |
+
+### 11.5 分析与建议
+
+1. **3000 iter 仍不足以把 bowl 拉回基线**：最佳 **75.19%**（iter_3000），距基线 **78.91%** 差 **3.72%**，距 fix5k **80.07%** 差 **4.88%**；继续加长 iter 大概率进一步损伤 window/mIoU（2k→3k 已几乎无 bowl 增益）。
+2. **mild 超参仍牵动 window**：bowl 权重 1.10 + Dice 0.1 在 iter_10000 表征上，**1000 step 即严重伤 bowl**，**2000+ step 伤 window**；与方案 3 诊断（bg/cup 混淆）相比，**单纯轻量 CE 微调难以在保持 81.76% mIoU 的同时修复 bowl**。
+3. **方案 1b 不推荐作交付权重**；路线 B 主推仍为：
+   - **mIoU / window 优先**：`balanced10k/iter_10000.pth`
+   - **bowl + mIoU 均衡**：`fix5k/iter_5000.pth`
+   - **仅 bowl 极致**：`bowl5k/iter_5000.pth`（牺牲 mIoU）
+4. **若仍要攻 bowl 且保留 10k 的 window**：可试 **iter_6000** 作起点 + **≤1500 iter**、bowl **1.12**、**关 Dice**；或接受 **iter_1000** 作「高 mIoU 略损 bowl」折中（**不推荐**，bowl 69.28 过低）。
+
+**1b 折中选 ckpt（仅作消融）**：`iter_1000.pth`（mIoU 81.04）；若必须在 1b 内兼顾 bowl，选 `iter_3000.pth`（bowl 75.19，mIoU 80.00）。
+
+---
+
 ## 9. 修订记录
 
 | 日期 | 说明 |
@@ -562,3 +678,5 @@ python tools/test.py \
 | 2026-05-23 | §8：填入 balanced10k 训练完成与 6k/8k/10k test 结果 |
 | 2026-05-23 | §8.6：方案 3 bowl 诊断（vis + analyze_bowl_confusion）；§10：方案 1 命令占位 |
 | 2026-05-23 | §10：方案 1 bowl5k test（mIoU 79.15%，bowl 80.25%） |
+| 2026-05-23 | §11：方案 1b 自 iter_10000 短训 3k（`balanced_bowl_from10k.py`） |
+| 2026-05-23 | §11.2–11.5：方案 1b 三次 test（1k/2k/3k 均未双达标） |

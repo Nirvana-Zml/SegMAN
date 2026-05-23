@@ -197,7 +197,9 @@ python scripts/check_ckpt_load.py   # 确认 test 时 missing=0
 
 **bowl 回落诊断（方案 3，已完成）**：对 `iter_10000` 做 vis + `scripts/analyze_bowl_confusion.py`；GT=bowl 像素上错分主要为 **background 9.29%**、**cup 6.19%**。详见 **《路线B_平衡微调方案.md》§8.6**。
 
-**bowl 专项微调（方案 1，已完成）**：`bowl5k/iter_5000.pth`，mIoU **79.15%**（未达 80.71%），bowl **80.25%**（达标）；**shelf 58.47%** 大幅回落。不宜作主推权重；见同文档 **§10**。
+**bowl 专项微调（方案 1，已完成）**：`bowl5k/iter_5000.pth`，mIoU **79.15%**，bowl **80.25%**；不宜作主推。见 **§10**。
+
+**bowl 修补（方案 1b，已完成）**：`balanced_bowl3k_from10k` 评测 1k/2k/3k — mIoU **81.04 / 80.02 / 80.00**，bowl **69.28 / 73.68 / 75.19**；**未**同时达到 mIoU≥80.71 且 bowl≥78.91。**勿作主推**；见 **§11.2–11.5**。
 
 ### 权重选用建议
 
