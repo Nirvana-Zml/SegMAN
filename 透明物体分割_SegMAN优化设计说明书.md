@@ -7,7 +7,7 @@
 | 基线模型 | SegMAN（CVPR 2025，MMSegmentation v0.30.0） |
 | 数据集 | Trans10K-v2（透明物体分割与细分类标注） |
 | 系统目标 | 高质量透明物体语义分割 → 细分类 → 用户交互式定位/分类/抓取一体化 |
-| 核心模块 | 编码器 **LASS**、解码器 **MMSCopE**、细分类子模型 **TransFine**、抓取仿真 **ASGrasp + PyBullet** |
+| 核心模块 | 编码器 **LASS**、解码器 **MMSCopE**、抓取仿真 **ASGrasp + PyBullet**（细分类为可选下游扩展） |
 
 ---
 
@@ -31,7 +31,7 @@
                                         ▼
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │ 阶段三：透明物体细分类与抓取一体化系统                                            │
-│  Grounded-SAM 等大模型特征提取 → TransFine 细分类训练/推理                       │
+│  Grounded-SAM 等大模型特征提取 → 可选细分类 / 抓取规划                           │
 │  用户交互指定目标 → ASGrasp 六自由度抓取姿态 → PyBullet 仿真 → 参数迭代优化        │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -71,7 +71,6 @@ SegMAN 通过 **Neighborhood Attention + VSSM/SS2D** 建模多尺度上下文，
 | SS2D | `VSSM` | Cross-Scan + Selective Scan |
 | LASS | `SegMANEncoderLASS` | 低纹理注意力 + 反射抑制编码器 |
 | MMSCopE | `SegMANDecoderMMSCopE` | 边界增强解码器 |
-| TransFine | 细分类子模型（待实现） | 透明物体类型判别 |
 | ASGrasp | 六自由度抓取规划模块 | 抓取姿态估计与仿真评估 |
 | 一体化系统 | `TransGraspUI`（建议包名） | 交互 + 分割 + 分类 + 仿真 |
 
@@ -322,38 +321,30 @@ data/Trans10K-v2-cls/
 
 **类别不平衡**：加权 CE、类均衡采样、focal loss。
 
-### 6.4 细分类子模型：TransFine
+### 6.4 细分类（可选扩展）
 
-**TransFine**：轻量 MLP / 小 Transformer 分类头，输入 `F_cat`，输出 `K` 类 logits。
+若需在分割 mask 基础上进一步区分 Trans10K-v2 细粒度类别，可在 `F_cat` 上接 **轻量分类头**（MLP 或小 Transformer），输出 `K` 类 logits。具体模型结构与训练流程由下游模块自行定义，**不属于本仓库核心交付范围**。
 
-```
-TransFine:
-  Input:  F_cat ∈ R^D
-  Hidden: Linear(D, 512) → BN → ReLU → Dropout
-          Linear(512, 256) → BN → ReLU
-  Output: Linear(256, K) → softmax
-```
-
-| 项目 | 建议 |
+| 项目 | 建议（若实施细分类） |
 |------|------|
 | 损失 | CrossEntropy + label smoothing(0.1) |
 | 优化器 | AdamW, lr=1e-3, 50～100 epoch |
 | 指标 | Top-1 Acc、每类 Recall、混淆矩阵 |
-| 与分割联合 | 先固定分割权重，仅训 TransFine；再可选联合微调 ROI 分支 |
+| 与分割联合 | 先固定分割权重与 Grounded-SAM，再训练分类头 |
 
-**推理输出**：`(class_id, class_name, confidence)`，与用户交互模块联动。
+**推理输出**（若启用）：`(class_id, class_name, confidence)`，与用户交互模块联动。
 
-### 6.5 模块接口
+### 6.5 模块接口（示例）
 
 ```python
 class FeatureExtractor:
     """Grounded-SAM + 可选 SegMAN ROI 特征。"""
     def extract(self, image, mask) -> Tensor: ...
 
-class TransFineClassifier(nn.Module):
+class RoiClassifier(nn.Module):
     def forward(self, feat: Tensor) -> Tensor: ...  # logits
 
-class TransFinePipeline:
+class ClassificationPipeline:
     def predict(self, image, seg_mask) -> dict:
         # return class_id, class_name, score, roi_bbox
 ```
@@ -367,7 +358,7 @@ class TransFinePipeline:
 构建 **用户交互驱动的透明物体分类与抓取一体化系统**，实现：
 
 1. **精准定位**：SegMAN-LASS + MMSCopE 分割 + 用户点选/框选；
-2. **精准分类**：TransFine 对指定 ROI 细分类，结果可人工确认；
+2. **精准分类**（可选）：对指定 ROI 细分类，结果可人工确认；
 3. **精准抓取**：ASGrasp 估计 6-DOF 抓取位姿，PyBullet 仿真验证并迭代优化参数。
 
 ### 7.2 系统架构
@@ -381,7 +372,7 @@ class TransFinePipeline:
          ┌───────────────────┼───────────────────┐
          ▼                   ▼                   ▼
 ┌─────────────┐    ┌─────────────────┐   ┌──────────────────┐
-│ SegMAN 分割  │    │ TransFine 分类   │   │ ASGrasp 抓取规划  │
+│ SegMAN 分割  │    │ 细分类（可选）    │   │ ASGrasp 抓取规划  │
 │ LASS+MMSCopE│    │ Grounded-SAM特征 │   │ 6-DOF pose       │
 └──────┬──────┘    └────────┬────────┘   └────────┬─────────┘
        │                    │                      │
@@ -404,7 +395,7 @@ class TransFinePipeline:
 | 1 | 上传/采集场景图像 | 运行分割，叠加透明 mask 可视化 |
 | 2 | 点击目标或框选区域 | 关联最近实例 mask；若无分割则提示 |
 | 3 | （可选）输入类别关键词 | Grounded-SAM 文本引导辅助定位 |
-| 4 | 查看分类结果 | TransFine 输出类别与置信度；低置信度提示确认 |
+| 4 | 查看分类结果 | 输出类别与置信度；低置信度提示确认 |
 | 5 | 确认抓取 | 触发 ASGrasp + PyBullet |
 | 6 | 查看仿真结果 | 成功/失败、评分、优化后位姿；可导出到真机 |
 
@@ -416,7 +407,7 @@ class TransFinePipeline:
 |--------|------|
 | RGB / 深度（可选） | 相机或仿真渲染 |
 | 物体 mask `M_seg` | 分割模块 |
-| 类别 `class_id` | TransFine（用于先验抓取模板或参数组） |
+| 类别 `class_id` | 细分类模块或 SegMAN 粗类（用于先验抓取模板或参数组） |
 | 物体位姿初值 | mask 质心 + 主方向 |
 
 **输出**
@@ -482,9 +473,7 @@ transgrasp/                          # 阶段三工程根目录（建议新建�
 ├── segmentation/
 │   └── infer_segman.py              # 调用 MMSeg 分割
 ├── classification/
-│   ├── extract_features.py          # Grounded-SAM 特征
-│   ├── transfine.py                 # 细分类模型
-│   └── train_transfine.py
+│   └── extract_features.py          # Grounded-SAM 特征（细分类头由下游自定）
 ├── grasping/
 │   ├── asgrasp_wrapper.py           # ASGrasp 接口封装
 │   ├── pybullet_env.py              # 仿真环境
@@ -526,7 +515,7 @@ L_seg_total = L_seg + λ_bd · L_bd + λ_bg · L_bg
 | 阶段 | 内容 |
 |------|------|
 | C0 | 离线提取 Grounded-SAM 特征缓存 |
-| C1 | 仅训练 TransFine（冻结 SAM） |
+| C1 | 仅训练轻量分类头（冻结 SAM） |
 | C2 | （可选）SegMAN ROI 分支小 lr 联合微调 |
 
 ### 8.4 抓取模块
@@ -557,7 +546,7 @@ L_seg_total = L_seg + λ_bd · L_bd + λ_bg · L_bg
 | M2 | 分割 | SegMANEncoderLASS + config | 透明类 mIoU ↑ |
 | M3 | 分割 | SegMANDecoderMMSCopE | Boundary F-score ↑ |
 | M4 | 分类 | cls 数据集 + Grounded-SAM 特征 | 缓存可复用 |
-| M5 | 分类 | TransFine 训练 | Top-1 Acc 达预期 |
+| M5 | 分类 | 细分类训练（可选） | Top-1 Acc 达预期 |
 | M6 | 系统 | PyBullet 场景 + ASGrasp 封装 | 单次仿真可跑通 |
 | M7 | 系统 | 参数迭代 + UI | 用户指定物体完成分类+抓取闭环 |
 
@@ -577,7 +566,7 @@ L_seg_total = L_seg + λ_bd · L_bd + λ_bg · L_bg
 |----|------|------|
 | C0 | 仅 ResNet ROI | 基线 |
 | C1 | 仅 Grounded-SAM | 大模型特征 |
-| C2 | SAM + SegMAN ROI | 完整 TransFine |
+| C2 | SAM + SegMAN ROI | 融合特征分类 |
 
 **抓取（G0～G1）**
 
@@ -643,21 +632,7 @@ model = dict(
 )
 ```
 
-### 11.2 细分类
-
-```yaml
-# transgrasp/configs/transfine.yaml
-num_classes: 10          # 与 Trans10K-v2 细类数一致
-feature_dim: 1280        # F_fm + F_roi_seg
-sam_model: grounded_sam
-seg_checkpoint: outputs/segman_b_trans10k/latest.pth
-train:
-  epochs: 80
-  batch_size: 64
-  lr: 1.0e-3
-```
-
-### 11.3 抓取先验（示例）
+### 11.2 抓取先验（示例）
 
 ```yaml
 # transgrasp/configs/grasp_class_prior.yaml
@@ -687,7 +662,7 @@ cup:
 | 版本 | 日期 | 说明 |
 |------|------|------|
 | v1.0 | 2026-05-16 | 初稿：LASS + MMSCopE |
-| v2.0 | 2026-05-16 | 扩展：Trans10K-v2 数据管线；Grounded-SAM + TransFine 细分类；ASGrasp + PyBullet 一体化交互系统；三阶段总览 |
+| v2.0 | 2026-05-16 | 扩展：Trans10K-v2 数据管线；Grounded-SAM 特征与可选细分类；ASGrasp + PyBullet 一体化交互系统；三阶段总览 |
 
 ---
 
@@ -708,4 +683,4 @@ cup:
 |------|--------|
 | 一 | Trans10K-v2 MMSeg 数据集、增强脚本、cls 数据集 |
 | 二 | SegMAN-LASS + MMSCopE 权重、分割推理 API |
-| 三 | TransFine 权重、TransGraspUI、PyBullet 场景、抓取优化脚本 |
+| 三 | TransGraspUI、PyBullet 场景、抓取优化脚本（细分类为可选） |

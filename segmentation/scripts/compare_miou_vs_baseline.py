@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import sys
 from pathlib import Path
@@ -42,11 +43,32 @@ def load_ious(path: Path) -> dict[str, float]:
     return out
 
 
+def resolve_eval_json(pattern: str) -> Path:
+    """Accept a file path or glob (shell does not expand * inside python argv)."""
+    p = Path(pattern)
+    if p.is_file():
+        return p
+    matches = sorted(glob.glob(pattern))
+    if not matches:
+        raise FileNotFoundError(
+            f'No eval json matched: {pattern!r}\n'
+            'Hint: run test with --work-dir <dir>, then use\n'
+            '  python scripts/compare_miou_vs_baseline.py '
+            '<dir>/eval_single_scale_*.json')
+    if len(matches) > 1:
+        print(f'Note: multiple matches, using latest: {matches[-1]}')
+    return Path(matches[-1])
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
-    p.add_argument('eval_json', type=Path, help='tools/test.py eval json path')
+    p.add_argument(
+        'eval_json',
+        help='tools/test.py metric json path, or glob e.g. '
+        'outputs/.../eval_final/eval_single_scale_*.json',
+    )
     args = p.parse_args()
-    ious = load_ious(args.eval_json)
+    ious = load_ious(resolve_eval_json(args.eval_json))
     m = ious.get('__mIoU__')
     if m is None:
         m = sum(ious[c] for c in ORDER) / len(ORDER)

@@ -3,6 +3,7 @@
 > **基线（已完成）**：`outputs/trans10k_segman_b/iter_80000.pth`，test **mIoU 80.71%**  
 > **路线 B 最高 mIoU**：`outputs/trans10k_lass_mmscope_balanced10k/iter_10000.pth`，test **mIoU 81.76%**（见 §0.3）  
 > **路线 B 正式权重（稳妥）**：`outputs/trans10k_lass_mmscope_fix5k/iter_5000.pth`，test **mIoU 80.84%**（见 §0.1）；类均衡可选 **balanced10k/iter_6000**（↑6 类）  
+> **基线 / fix5k / balanced10k 合一对比**：《路线B_基线_fix5k_balanced10k_对比分析.md》  
 > **平衡微调说明**：**《路线B_平衡微调方案.md》**（10k，非 80k）  
 > **目标**：mIoU **> 80.71%**，重点提升 **window / shelf / box**  
 > **设计依据**：《透明物体分割_SegMAN优化设计说明书.md》§4～§5、§8；《项目实施步骤指南.md》B5～B7
@@ -1314,12 +1315,12 @@ python tools/test.py \
 
 **目的**：路线 C（Grounded-SAM + TransFine）**只消费 mask/ROI**，需固定「用哪一版 checkpoint」。
 
-**交付物**：
+**交付物（项目后续统一以 fix5k 为准，见《路线B_fix5k_项目后续步骤.md》）**：
 
-- **推荐部署权重（mIoU 最高）**：`outputs/trans10k_lass_mmscope_balanced10k/iter_10000.pth`（test mIoU **81.76%**，§0.3）
-- **备选**：`fix5k/iter_5000.pth`（80.84%）；`balanced10k/iter_6000.pth`（↑6 类，80.83%）
-- 配置：`segman_b_trans10k_lass_balanced.py`（或 `segman_b_trans10k_lass.py` 若用 fix5k）
-- 推理：仍输出 **12 类语义图**；下游可取 **前景并集** 作为透明物体 mask（见《Trans10K训练快速开始.md》）
+- **正式部署权重**：`outputs/trans10k_lass_mmscope_fix5k/iter_5000.pth`（mIoU **80.84%**，bowl **80.07%**，§0.1）
+- 配置：`segman_b_trans10k_lass.py`
+- **归档对照（不部署）**：`balanced10k/iter_10000.pth`（mIoU 81.76%，bowl 74.31%，§0.3）
+- 推理：输出 **12 类语义图**；下游可取 **非 background 并集** 或 dominant class 作为透明 mask
 
 ---
 
@@ -1335,7 +1336,7 @@ python tools/test.py \
 | 3.3 方案 A 80k（对照） | ☑ 已跑 | 未达标，见 §0.2；**勿部署** |
 | 3.4～3.5 方案 B（可选） | ☐ | B7-1/2 链式 ckpt |
 | 3.7 `test.py` mIoU | ☑ | fix5k 80.84%；balanced10k **81.76%** |
-| 3.9 路线 C 交接 | ☑ | 主推 `balanced10k/iter_10000.pth` |
+| 3.9 路线 C 交接 | ☑ | **正式 fix5k**；后续见《路线B_fix5k_项目后续步骤.md》 |
 
 **阶段 3 通过后** → 路线 **C**（`transgrasp`、Grounded-SAM、TransFine），见《项目实施步骤指南.md》。
 

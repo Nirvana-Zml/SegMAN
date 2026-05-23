@@ -8,6 +8,7 @@
 | 当前正式交付 | `outputs/trans10k_lass_mmscope_fix5k/iter_5000.pth`（mIoU **80.84%**，见《路线B_LASS_MMSCopE_实施清单.md》§0.1） |
 | 本方案目标 | **mIoU ≥ 80.71%**，且 **多数类别 IoU 高于基线**（建议 ≥8/12 类 Δ>0.2%） |
 | 关联清单 | 《路线B_LASS_MMSCopE_实施清单.md》《Trans10K_SegMAN_B_训练与评测结果.md》 |
+| **三方案对比** | 《路线B_基线_fix5k_balanced10k_对比分析.md》（基线 / fix5k / iter_10000 合一表） |
 
 ---
 

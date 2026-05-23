@@ -11,16 +11,14 @@
 | 模块 | 职责 |
 |------|------|
 | **SegMAN**（本文） | 透明物体 **在哪儿**：输出分割 mask，供裁剪 ROI |
-| **Grounded-SAM**（路线 C） | 在 mask 区域内提取大模型特征、参与语义理解 |
-| **TransFine**（路线 C） | 融合 Grounded-SAM + SegMAN ROI 特征，做 **细分类** |
-| **抓取仿真**（路线 C） | 在 mask + 类别基础上做 PyBullet / ASGrasp 等 |
+| **Grounded-SAM**（路线 C，可选） | 在 mask 区域内提取大模型特征、参与语义理解 |
+| **抓取仿真**（路线 C，可选） | 在 mask + 类别基础上做 PyBullet / ASGrasp 等 |
 
 ```text
 RGB 图像
    → SegMAN：透明区域 mask（本阶段产物）
    → 按 mask 裁剪 ROI
-   → Grounded-SAM + TransFine：细分类（非 SegMAN 完成）
-   → 抓取 / 交互系统
+   → （可选）Grounded-SAM 特征 / 细分类 / 抓取
 ```
 
 ### 为何配置里仍是 12 类？
@@ -84,7 +82,7 @@ ls data/trans10k/ann_dir/train | head
 
 应成对出现 `train_000000.jpg` 与 `train_000000.png`。
 
-**二分类（更贴近下游「只出 mask」）**：背景 vs 任意透明区域，`num_classes=2`，与「分类由 Grounded-SAM + TransFine 完成」一致；使用配置 `segman_b_trans10k_binary.py`：
+**二分类（更贴近下游「只出 mask」）**：背景 vs 任意透明区域，`num_classes=2`；使用配置 `segman_b_trans10k_binary.py`：
 
 ```bash
 python tools/convert_datasets/trans10k.py ../data/Trans10K-v2 -o data/trans10k --mode binary
@@ -327,7 +325,7 @@ model = init_segmentor(config, checkpoint, device='cuda:0')
 result = inference_segmentor(model, img)
 show_result_pyplot(model, img, result, opacity=0.5)
 
-# 供 Grounded-SAM / TransFine：取透明前景二值 mask（12 类时 label>0）
+# 供下游 ROI 裁剪：取透明前景二值 mask（12 类时 label>0）
 # seg = result[0]  # HxW, int
 # binary_mask = (seg > 0).astype(np.uint8)
 # roi = crop_by_bbox(img, binary_mask)  # 按 mask 外接矩形裁剪
@@ -359,7 +357,7 @@ python tools/publish_model.py \
 1. **分割验收**：mIoU、目视 mask 边界；导出 mask 供 ROI 裁剪（系统真正用的是 mask，不是 12 类 logits）。  
 2. **对比**：与 debug 2000 iter（`outputs/trans10k_debug/`）的 mIoU 对比，确认长训收益。  
 3. **改进分割**：按设计书实现 **LASS** + **MMSCopE**，见《项目实施步骤指南.md》路线 B（步骤 B5～B7）。  
-4. **下游（路线 C）**：`SegMAN mask` → **Grounded-SAM** 特征 → **TransFine 细分类** → 抓取仿真；分类步骤见指南 C2～C5，**不由 SegMAN 单独完成**。
+4. **下游（路线 C，可选）**：`SegMAN mask` → **Grounded-SAM** 特征 / 细分类 / 抓取仿真；见《项目实施步骤指南.md》路线 C。
 
 正式权重路径供后续配置引用（Docker）：
 
@@ -387,7 +385,7 @@ python tools/test.py local_configs/segman_trans/segman_b_trans10k.py \
 
 ## 类别说明（12 类，仅用于训练标注与 mIoU 评测）
 
-下列 ID 来自 Trans10K-v2 多类 mask。**课题端到端系统中，细分类由 Grounded-SAM + TransFine 完成**；SegMAN 训练时使用这些类是为了利用数据集标注并评估分割质量。若只需「是否透明」，可将预测合并为前景，或改用二分类配置。
+下列 ID 来自 Trans10K-v2 多类 mask。SegMAN 训练时使用这些类是为了利用数据集标注并评估分割质量。若只需「是否透明」，可将预测合并为前景，或改用二分类配置。
 
 | ID | 类别 |
 |----|------|
@@ -475,4 +473,4 @@ pip install "numpy<2.0"
 
 或已在本仓库修补 `mmseg/datasets/pipelines/formatting.py` 中的 `to_tensor`（需同步到 Docker）。
 
-下一步（你的课题）：① 分割侧实现 LASS / MMSCopE；② 路线 C 用 SegMAN **mask** 衔接 Grounded-SAM + TransFine 做细分类。见《透明物体分割_SegMAN优化设计说明书.md》《项目实施步骤指南.md》。
+下一步（你的课题）：① 分割侧实现 LASS / MMSCopE；② 路线 C 用 SegMAN **mask** 衔接 Grounded-SAM 与抓取等下游模块。见《透明物体分割_SegMAN优化设计说明书.md》《项目实施步骤指南.md》。
