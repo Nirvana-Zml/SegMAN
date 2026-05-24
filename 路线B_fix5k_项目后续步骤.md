@@ -102,7 +102,9 @@ python scripts/verify_mmscope_phase2.py
 | 类型 | 路径 |
 |------|------|
 | 分割权重 | `outputs/trans10k_lass_mmscope_fix5k/iter_5000.pth` |
-| 训练配置 | `local_configs/segman_trans/segman_b_trans10k_lass.py` |
+| 训练配置 | `local_configs/segman_trans/segman_b_trans10k_lass.py`（**勿改**） |
+| fix5k 配方备份 | `local_configs/segman_trans/recipes/segman_b_trans10k_lass_fix5k.py` |
+| balanced-v2（实验） | `segman_b_trans10k_lass_balanced_v2.py`，见《路线B_平衡微调方案.md》§12 |
 | 对比文档 | `路线B_基线_fix5k_balanced10k_对比分析.md` |
 | 数值来源 | `路线B_LASS_MMSCopE_实施清单.md` §0.1 |
 

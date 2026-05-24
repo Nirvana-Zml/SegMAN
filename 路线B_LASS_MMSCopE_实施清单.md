@@ -200,7 +200,9 @@ python scripts/check_ckpt_load.py   # 确认 test 时 missing=0
 
 **bowl 专项微调（方案 1，已完成）**：`bowl5k/iter_5000.pth`，mIoU **79.15%**，bowl **80.25%**；不宜作主推。见 **§10**。
 
-**bowl 修补（方案 1b，已完成）**：`balanced_bowl3k_from10k` 评测 1k/2k/3k — mIoU **81.04 / 80.02 / 80.00**，bowl **69.28 / 73.68 / 75.19**；**未**同时达到 mIoU≥80.71 且 bowl≥78.91。**勿作主推**；见 **§11.2–11.5**。
+**bowl 修补（方案 1b，已完成）**：`balanced_bowl3k_from10k` 未双达标；见 **§11.2–11.5**。
+
+**balanced-v2（8k 扫完）**：终选 **4k**（mIoU 81.81 / bowl 80.82 / window 83.33）或 **6k**（shelf 67.73 / bowl 80.70）；**8k** mIoU 81.18、bowl 79.10、shelf 62.86 **不推荐**。见《路线B_平衡微调方案.md》**§12.7～12.8**、对比分析 **§5.9～5.12**。
 
 ### 权重选用建议
 
