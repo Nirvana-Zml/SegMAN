@@ -2,7 +2,8 @@
 
 > **基线（已完成）**：`outputs/trans10k_segman_b/iter_80000.pth`，test **mIoU 80.71%**  
 > **路线 B 最高 mIoU**：`outputs/trans10k_lass_mmscope_balanced10k/iter_10000.pth`，test **mIoU 81.76%**（见 §0.3）  
-> **路线 B 正式权重（稳妥）**：`outputs/trans10k_lass_mmscope_fix5k/iter_5000.pth`，test **mIoU 80.84%**（见 §0.1）；类均衡可选 **balanced10k/iter_6000**（↑6 类）  
+> **路线 B 正式权重**：`outputs/trans10k_lass_mmscope_balanced_v2/iter_6000.pth`，test **mIoU 81.80%** / bowl **80.70%** / shelf **67.73%**（见《路线B_平衡微调方案.md》§12.6、《路线B_fix5k_项目后续步骤.md》v2.0）
+> **历史对照**：fix5k `iter_5000.pth`（80.84%，§0.1）  
 > **基线 / fix5k / balanced10k 合一对比**：《路线B_基线_fix5k_balanced10k_对比分析.md》  
 > **平衡微调说明**：**《路线B_平衡微调方案.md》**（10k，非 80k）  
 > **目标**：mIoU **> 80.71%**，重点提升 **window / shelf / box**  
@@ -202,7 +203,7 @@ python scripts/check_ckpt_load.py   # 确认 test 时 missing=0
 
 **bowl 修补（方案 1b，已完成）**：`balanced_bowl3k_from10k` 未双达标；见 **§11.2–11.5**。
 
-**balanced-v2（8k 扫完）**：终选 **4k**（mIoU 81.81 / bowl 80.82 / window 83.33）或 **6k**（shelf 67.73 / bowl 80.70）；**8k** mIoU 81.18、bowl 79.10、shelf 62.86 **不推荐**。见《路线B_平衡微调方案.md》**§12.7～12.8**、对比分析 **§5.9～5.12**。
+**balanced-v2（正式交付）**：**`iter_6000.pth`**（mIoU 81.80）。**4k** 仅作 window 消融；**8k** 不推荐。见《路线B_平衡微调方案.md》§12.6、§12.8。
 
 ### 权重选用建议
 

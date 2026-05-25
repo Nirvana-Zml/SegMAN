@@ -5,7 +5,7 @@
 | `segman_b_trans10k_lass_fix5k.py` | **Frozen fix5k** (5k iter, lr 3e-5). Do not change for v2 experiments. |
 | `../segman_b_trans10k_lass.py` | Shared LASS+MMSCopE architecture (fix5k & phase-3 base). **Do not edit** for balanced-v2. |
 | `../segman_b_trans10k_lass_balanced.py` | balanced v1 (balanced10k archive). |
-| `../segman_b_trans10k_lass_balanced_v2.py` | **balanced-v2** retrain (bowl-focused). |
+| `../segman_b_trans10k_lass_balanced_v2.py` | **balanced-v2**；**正式交付权重** `balanced_v2/iter_6000.pth`. |
 
 **fix5k train (reproduce)**:
 

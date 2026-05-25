@@ -1,0 +1,16 @@
+clip_model: ViT-B-16
+clip_pretrained: laion2b_s34b_b88k
+num_classes: 11
+freeze_clip: true
+head: linear
+mlp_hidden: 256
+mlp_dropout: 0.1
+roi_root: data/trans10k_roi_gt
+work_dir: outputs/openclip_classifier
+label_smoothing: 0.1
+epochs: 40
+batch_size: 64
+lr: 1.0e-3
+weight_decay: 0.01
+num_workers: 4
+seed: 42

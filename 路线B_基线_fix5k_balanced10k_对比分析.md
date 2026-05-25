@@ -314,9 +314,9 @@
 
 | 场景                       | 推荐 ckpt     | 理由                                       |
 | ------------------------ | ----------- | ---------------------------------------- |
-| **mIoU + bowl + window** | `iter_4000` | 三项 v2 最高；相对 balanced10k 亦优                 |
-| **shelf 不能掉 + bowl 仍高**  | `iter_6000` | shelf **67.73**≈基线；bowl **80.70**；window 偏弱 |
-| **不推荐**                  | `iter_8000` | mIoU/bowl/shelf 均弱于 4k/6k；无选用场景            |
+| **正式交付（项目决策）**           | **`iter_6000`** | mIoU/bowl/shelf 均衡；见交付文档 v2.0              |
+| **mIoU + bowl + window（消融）** | `iter_4000` | window 最高；shelf 63.61，不作部署                 |
+| **不推荐**                  | `iter_8000` | 长训退化                                         |
 
 
 ### 5.12 v2 训练曲线要点
@@ -371,15 +371,16 @@
 | -------------------------- | --------------------------------------------- | ------------------------------------------------------ |
 | **最高 mIoU、window 论文主表**    | `balanced10k/iter_10000` 或 `**v2/iter_2000`** | 81.76 / **81.58**；window 82.91 / **82.76**             |
 | **mIoU≥基线且 bowl≥基线（历史稳妥）** | `**fix5k/iter_5000.pth`**                     | mIoU 80.84，bowl 80.07                                  |
-| **mIoU+bowl+window（v2）**   | `**balanced_v2/iter_4000.pth`**               | mIoU **81.81**，bowl **80.82**，window **83.33**         |
-| **bowl+shelf 兼顾（v2）**      | `**balanced_v2/iter_6000.pth`**               | bowl **80.70**，shelf **67.73**（≈基线）；window 仅 **77.16** |
+| **正式交付（v2@6k）**          | `**balanced_v2/iter_6000.pth`**               | mIoU **81.80**，bowl **80.70**，shelf **67.73**            |
+| window 消融（非部署）            | `balanced_v2/iter_4000.pth`                   | window **83.33**；shelf 63.61                            |
 | v2 备选                      | `iter_2000`                                   | shelf 66.59，window 仍高                                  |
 | v2 **勿用**                  | `iter_8000`                                   | mIoU 81.18，bowl 低于 fix5k，shelf 62.86                    |
 | **多类 IoU 尽量不低于基线**         | `balanced10k/iter_6000` 或 v2@2k               | 见 §8.3 / 本文 §5                                         |
-| **路线 C 分割（项目暂冻结）**         | `**fix5k/iter_5000.pth`**                     | 见《路线B_fix5k_项目后续步骤.md》；v2 验证后可升级                       |
+| **路线 C / 正式交付**              | `**balanced_v2/iter_6000.pth`**               | 见《路线B_fix5k_项目后续步骤.md》v2.0；config 为 `balanced_v2.py`        |
+| 论文 window 消融（非部署）            | `balanced_v2/iter_4000`                       | window 83.33；shelf 偏低                                      |
 
 
-**当前实验结论**：**v2@4k** 为 **mIoU/bowl/window** 终选；**v2@6k** 为 **shelf+bowl** 终选；**v2@8k** 长训退化，**不推荐**。正式交付仍 **fix5k**；技术展示/冲高 mIoU 可用 **v2@4k**。
+**当前实验结论**：**正式交付 = v2@6k**（mIoU **81.80**，bowl/shelf 均衡）。**v2@4k** 作 window 消融；**v2@8k** 不推荐。**fix5k** 作历史/专利从属对照。
 
 ---
 
@@ -436,5 +437,6 @@ python scripts/compare_miou_vs_baseline.py <test.py 输出的 json 路径>
 | 2026-05-23 | §5.5～5.7：balanced-v2 iter_4000；暂定最佳 iter_4000 |
 | 2026-05-23 | §5.8～5.10：balanced-v2 iter_6000；4k/6k 分场景推荐   |
 | 2026-05-23 | §5.9～5.12：iter_8000；v2 终选 4k/6k，8k 不推荐      |
+| 2026-05-19 | **正式交付定为 balanced-v2 `iter_6000.pth`**        |
 
 

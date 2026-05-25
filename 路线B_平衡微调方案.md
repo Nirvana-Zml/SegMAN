@@ -5,7 +5,8 @@
 | 文档版本 | v1.0 |
 | 编写日期 | 2026-05-23 |
 | 前置权重 | 基线 `outputs/trans10k_segman_b/iter_80000.pth`（mIoU **80.71%**） |
-| 当前正式交付 | `outputs/trans10k_lass_mmscope_fix5k/iter_5000.pth`（mIoU **80.84%**，见《路线B_LASS_MMSCopE_实施清单.md》§0.1） |
+| **当前正式交付** | `outputs/trans10k_lass_mmscope_balanced_v2/iter_6000.pth`（mIoU **81.80%**，bowl **80.70%**，shelf **67.73%**） |
+| 历史交付（对照） | fix5k `iter_5000.pth`（80.84%） |
 | 本方案目标 | **mIoU ≥ 80.71%**，且 **多数类别 IoU 高于基线**（建议 ≥8/12 类 Δ>0.2%） |
 | 关联清单 | 《路线B_LASS_MMSCopE_实施清单.md》《Trans10K_SegMAN_B_训练与评测结果.md》 |
 | **三方案对比** | 《路线B_基线_fix5k_balanced10k_对比分析.md》（基线 / fix5k / iter_10000 合一表） |
@@ -992,11 +993,11 @@ bash scripts/test_balanced_v2_sweep.sh
 
 | 场景 | 推荐 ckpt | mIoU / bowl / window / shelf |
 |------|-----------|------------------------------|
-| **默认（mIoU+bowl+window）** | **`iter_4000.pth`** | 81.81 / 80.82 / 83.33 / 63.61 |
-| **shelf≈基线 + bowl 仍高** | **`iter_6000.pth`** | 81.80 / 80.70 / 77.16 / 67.73 |
+| **正式交付（已选定）** | **`iter_6000.pth`** | 81.80 / 80.70 / 77.16 / 67.73 |
+| 论文消融（window 最高） | `iter_4000.pth` | 83.33 window；shelf 63.61 |
 | 不推荐 | `iter_8000` | 81.18 / 79.10 / 80.65 / 62.86 |
 
-**正式交付（软著/专利/路线 C 冻结）** 仍为 **fix5k**；v2 **技术最优** 为 **4k**（总指标）或 **6k**（shelf 敏感）。全表见对比分析 §5.11～5.12。
+**正式交付（软著/专利/路线 C）**：**`balanced_v2/iter_6000.pth`**（2026-05-19 决策）。技术冲高 window 仍可用 **4k** 作论文消融，**不替代** 6k 部署。全表见对比分析 §5.11～5.12。
 
 ---
 
@@ -1015,3 +1016,4 @@ bash scripts/test_balanced_v2_sweep.sh
 | 2026-05-23 | §12.5：balanced-v2 iter_4000 test；当前最佳 iter_4000 |
 | 2026-05-23 | §12.6：balanced-v2 iter_6000 test；shelf 回升、window 回落 |
 | 2026-05-23 | §12.7～12.8：iter_8000 test；v2 终选 4k/6k，8k 不推荐 |
+| 2026-05-19 | **正式交付定为 `iter_6000.pth`**（替代 fix5k）          |

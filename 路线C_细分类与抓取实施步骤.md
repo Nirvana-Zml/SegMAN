@@ -2,11 +2,12 @@
 
 | 项目 | 内容 |
 |------|------|
-| 文档版本 | v1.2 |
-| 日期 | 2026-05-23 |
-| 前置（已完成） | 路线 B：**fix5k** `outputs/trans10k_lass_mmscope_fix5k/iter_5000.pth` |
-| 细分类推荐方案 | **OpenCLIP** 预训练视觉编码器 + 轻量分类头（**不做**语义分割、**不**跑官方 CLIP 大规模图文对比预训练） |
-| 关联设计 | 《透明物体分割_SegMAN优化设计说明书.md》§6～§7；《项目实施步骤指南.md》路线 C |
+| 文档版本 | v1.3 |
+| 日期 | 2026-05-24 |
+| 前置（已完成） | 路线 B：**balanced-v2 @ 6k** `outputs/trans10k_lass_mmscope_balanced_v2/iter_6000.pth` |
+| 分割评测归档 | `.../eval_deliver_6k/eval_single_scale_20260524_133106.json`（mIoU **81.80%**） |
+| 细分类推荐方案 | **OpenCLIP** 预训练视觉编码器 + 轻量分类头（详见《OpenCLIP_细分类训练与优化指南.md》） |
+| 关联设计 | 《透明物体分割_SegMAN优化设计说明书.md》§6～§7；《OpenCLIP_细分类训练与优化指南.md》 |
 
 ---
 
@@ -14,7 +15,7 @@
 
 ```text
 ┌─────────────────────────────────────────────────────────────────┐
-│ ① SegMAN（fix5k）语义分割 — 已完成                                │
+│ ① SegMAN（v2@6k）语义分割 — 已完成                                │
 │    输入：RGB 图  →  输出：12 类语义图 / 实例 mask / ROI bbox       │
 └───────────────────────────────┬─────────────────────────────────┘
                                 │ mask 裁剪 ROI
@@ -36,7 +37,7 @@
 
 | 模块 | 做什么 | 不做什么 |
 |------|--------|----------|
-| **SegMAN fix5k** | 像素级 **分割**、实例 **定位**（mask/bbox） | **细分类**（交给 OpenCLIP 头） |
+| **SegMAN v2@6k** | 像素级 **分割**、实例 **定位**（mask/bbox） | **细分类**（交给 OpenCLIP 头） |
 | **OpenCLIP** | 在 ROI 上做 **有监督细分类**（冻结或小幅微调 ViT） | **语义分割**、大规模 image–text 对比预训练 |
 | **轻量分类头** | `Linear` / 小 MLP：`encode_image(roi)` → 11 类 logits | 分割 |
 | **Grounded-SAM**（可选） | 替代 OpenCLIP 作 ROI 特征 | 端到端训大模型 |
@@ -47,21 +48,20 @@
 
 `background`, `box`, `bottle`, `window`, `eyeglass`, `freezer`, `jar_kettle`, `door`, `cup`, `wall`, `bowl`, `shelf`
 
-> **说明**：OpenCLIP 只消费 **SegMAN 已分割并裁好的透明物体小图**；分割质量由 fix5k 决定，分类器不反向训练 SegMAN（除非另开 T2 实验）。
+> **说明**：OpenCLIP 只消费 **SegMAN 已分割并裁好的透明物体小图**；分割质量由 v2@6k 决定，分类器不反向训练 SegMAN（除非另开 T2 实验）。
 
 ---
 
-## 2. 阶段 0：分割侧收尾（fix5k，约 1 天）
+## 2. 阶段 0：分割侧收尾（v2@6k，约 1 天）
 
 **目的**：路线 C 全程固定同一分割权重，避免 mask 漂移。
 
-```bash
-docker exec -it segman_train bash
+```powershell
 conda activate segman
-cd /workspace/segman/segmentation
+cd D:\SegMAN-main\SegMAN\segmentation
 
-python tools/test.py local_configs/segman_trans/segman_b_trans10k_lass.py \
-  --checkpoint outputs/trans10k_lass_mmscope_fix5k/iter_5000.pth \
+python tools/test.py local_configs/segman_trans/segman_b_trans10k_lass_balanced_v2.py `
+  --checkpoint outputs/trans10k_lass_mmscope_balanced_v2/iter_6000.pth `
   --eval mIoU
 ```
 
@@ -77,7 +77,7 @@ python tools/test.py local_configs/segman_trans/segman_b_trans10k_lass.py \
 | 数据集后缀 | mask 来源 | 目的 |
 |------------|-----------|------|
 | `trans10k_roi_gt/` | Trans10K **GT** 标注 | **训练** OpenCLIP 分类头（标签干净、上限高） |
-| `trans10k_roi_segman/` | **fix5k 预测** mask | **验证 / 部署评测**（误差传递与真实流水线一致） |
+| `trans10k_roi_segman/` | **v2@6k 预测** mask | **验证 / 部署评测**（误差传递与真实流水线一致） |
 
 ### 步骤 ①-1：目录与 `classes.txt`
 
@@ -91,19 +91,18 @@ data/trans10k_roi_gt/
 ├── val/labels.csv
 └── meta/classes.txt           # 11 行前景类名（无 background）或 12 行含 background
 
-data/trans10k_roi_segman/      # 结构同上，由 fix5k 推理生成
+data/trans10k_roi_segman/      # 结构同上，由 v2@6k 推理生成
 ```
 
 `labels.csv` 列建议：`path,class_id,class_name,src_image,instance_id,mask_source`
 
 **命令（生成 meta，一次性）**：
 
-```bash
-docker exec -it segman_train bash
+```powershell
 conda activate segman
-cd /workspace/segman
+cd D:\SegMAN-main\SegMAN
 
-mkdir -p data/trans10k_roi_gt/meta
+New-Item -ItemType Directory -Force -Path data/trans10k_roi_gt/meta | Out-Null
 python -c "
 classes = '''background box bottle window eyeglass freezer jar_kettle door cup wall bowl shelf'''.split()
 open('data/trans10k_roi_gt/meta/classes.txt','w').write('\n'.join(classes[1:]))
@@ -122,7 +121,7 @@ print('wrote', len(classes)-1, 'foreground classes')
 **脚本（待建）**：`transgrasp/data/build_roi_dataset.py`
 
 ```bash
-cd /workspace/segman
+cd D:\SegMAN-main\SegMAN
 
 python transgrasp/data/build_roi_dataset.py \
   --data-root data/trans10k \
@@ -151,37 +150,38 @@ python transgrasp/data/build_roi_dataset.py \
 
 ---
 
-### 步骤 ①-3：用 SegMAN（fix5k）导出部署向 ROI
+### 步骤 ①-3：用 SegMAN（v2@6k）导出部署向 ROI
 
 **目的**：模拟上线流程——**先分割再裁图**——用于 val 评测与困难样本分析（允许与 GT-ROI 准确率对比）。
 
-**步骤 A — 批量保存 fix5k 语义图（若尚无）**
+**步骤 A — 批量保存 v2@6k 语义图（class-id PNG）**
 
 ```bash
-cd /workspace/segman/segmentation
+cd D:\SegMAN-main\SegMAN
 
-python tools/test.py local_configs/segman_trans/segman_b_trans10k_lass.py \
-  --checkpoint outputs/trans10k_lass_mmscope_fix5k/iter_5000.pth \
-  --eval mIoU \
-  --show-dir outputs/trans10k_lass_mmscope_fix5k/pred_sem_seg_val
+python transgrasp/data/export_sem_seg_preds.py \
+  --config segmentation/local_configs/segman_trans/segman_b_trans10k_lass_balanced_v2.py \
+  --checkpoint segmentation/outputs/trans10k_lass_mmscope_balanced_v2/iter_6000.pth \
+  --data-root segmentation/data/trans10k \
+  --split val \
+  --out-dir segmentation/outputs/trans10k_lass_mmscope_balanced_v2/pred_sem_seg_val
 ```
 
-**目的**：得到与 val 集对齐的预测 mask，供 ROI 裁剪；`--show-dir` 下 PNG 与 `data/trans10k/img_dir/val` 同名对应（以你们 `test.py` 实际输出为准，必要时在 `build_roi_dataset.py` 中指定 `--pred-dir`）。
+**目的**：得到与 val 集对齐的预测 mask（单通道 0–11），供 ROI 裁剪；PNG 与 `img_dir/val` 同名 stem 对应。
 
 **步骤 B — 由预测 mask 裁 ROI**
 
 ```bash
-cd /workspace/segman
+cd D:\SegMAN-main\SegMAN
 
 python transgrasp/data/build_roi_dataset.py \
-  --data-root data/trans10k \
+  --data-root segmentation/data/trans10k \
   --split val \
   --mask-source segman \
-  --pred-dir segmentation/outputs/trans10k_lass_mmscope_fix5k/pred_sem_seg_val \
-  --seg-config segmentation/local_configs/segman_trans/segman_b_trans10k_lass.py \
-  --seg-checkpoint segmentation/outputs/trans10k_lass_mmscope_fix5k/iter_5000.pth \
+  --pred-dir segmentation/outputs/trans10k_lass_mmscope_balanced_v2/pred_sem_seg_val \
   --out-root data/trans10k_roi_segman/val \
-  --bbox-pad 0.15
+  --bbox-pad 0.15 \
+  --min-area 64
 ```
 
 **目的**：评估「SegMAN 裁错 / 漏实例」对细分类 Acc 的影响；**不用于** OpenCLIP 主训练（除非做联合鲁棒性实验）。
@@ -230,16 +230,22 @@ python transgrasp/data/stats_roi_dataset.py \
 
 ### 步骤 ②-1：安装 OpenCLIP 推理/训练依赖
 
+> **路径说明**：虚拟环境在 `D:\SegMAN-main\SegMAN` 下使用；OpenCLIP 源码在 `D:\SegMAN-main\open_clip-3`（平级目录）。详见《OpenCLIP_细分类训练与优化指南.md》§0～§2。
+
 **目的**：加载预训练 ViT 与官方 `preprocess`（resize、normalize 与预训练一致，否则特征失真）。
 
-```bash
-docker exec -it segman_train bash
+```powershell
 conda activate segman
-cd /workspace/segman
+cd D:\SegMAN-main\SegMAN
 
 pip install -U open_clip_torch timm
-# 可选：固定版本便于复现
+# 可选：固定版本
 # pip install open_clip_torch==2.32.0 timm>=1.0.15
+
+# 可选：从兄弟目录源码安装（非 SegMAN 内）
+# cd D:\SegMAN-main\open_clip-3
+# pip install -e .
+# cd D:\SegMAN-main\SegMAN
 ```
 
 **冒烟（确认 GPU 与权重可加载）**：
@@ -303,7 +309,7 @@ work_dir: outputs/openclip_classifier
 **目的**：用最少参数、最快收敛，在 Trans10K ROI 上学会 11 类细分类；避免破坏 CLIP 预训练表征。
 
 ```bash
-cd /workspace/segman
+cd D:\SegMAN-main\SegMAN
 
 python transgrasp/classification/train_openclip_classifier.py \
   --config transgrasp/configs/openclip_classifier.yaml \
@@ -398,18 +404,18 @@ python transgrasp/classification/infer_openclip_roi.py \
 
 ### 步骤 ②-7：端到端「SegMAN 分割 + OpenCLIP 细分类」
 
-**目的**：上线形态——上传原图 → fix5k mask → 每实例 crop → OpenCLIP 细类。
+**目的**：上线形态——上传原图 → v2@6k mask → 每实例 crop → OpenCLIP 细类。
 
 **脚本（待建）**：`transgrasp/pipelines/segment_and_classify.py`
 
 ```bash
-cd /workspace/segman
+cd D:\SegMAN-main\SegMAN
 
 python transgrasp/pipelines/segment_and_classify.py \
   --backend openclip \
   --image data/trans10k/img_dir/val/xxxx.jpg \
-  --seg-config segmentation/local_configs/segman_trans/segman_b_trans10k_lass.py \
-  --seg-checkpoint segmentation/outputs/trans10k_lass_mmscope_fix5k/iter_5000.pth \
+  --seg-config segmentation/local_configs/segman_trans/segman_b_trans10k_lass_balanced_v2.py \
+  --seg-checkpoint segmentation/outputs/trans10k_lass_mmscope_balanced_v2/iter_6000.pth \
   --classifier-checkpoint outputs/openclip_classifier/t1_freeze/best.pth \
   --clip-model ViT-B-16 \
   --clip-pretrained laion2b_s34b_b88k \
@@ -430,8 +436,8 @@ python transgrasp/pipelines/segment_and_classify.py \
 python transgrasp/pipelines/segment_and_classify.py \
   --backend openclip \
   --image-list data/trans10k/meta/val_list.txt \
-  --seg-config segmentation/local_configs/segman_trans/segman_b_trans10k_lass.py \
-  --seg-checkpoint segmentation/outputs/trans10k_lass_mmscope_fix5k/iter_5000.pth \
+  --seg-config segmentation/local_configs/segman_trans/segman_b_trans10k_lass_balanced_v2.py \
+  --seg-checkpoint segmentation/outputs/trans10k_lass_mmscope_balanced_v2/iter_6000.pth \
   --classifier-checkpoint outputs/openclip_classifier/t1_freeze/best.pth \
   --out-json outputs/openclip_classifier/e2e_val_predictions.json
 ```
@@ -541,7 +547,7 @@ python transgrasp/grasping/pybullet_env.py  # 冒烟：加载场景、关节可�
 ```bash
 python transgrasp/grasping/run_grasp_sim_once.py \
   --image data/trans10k/img_dir/val/xxx.jpg \
-  --seg-checkpoint segmentation/outputs/trans10k_lass_mmscope_fix5k/iter_5000.pth \
+  --seg-checkpoint segmentation/outputs/trans10k_lass_mmscope_balanced_v2/iter_6000.pth \
   --classifier-checkpoint outputs/openclip_classifier/t1_freeze/best.pth \
   --classifier-backend openclip
 ```
@@ -576,7 +582,7 @@ python transgrasp/ui/app.py
 
 | 交付物 | 内容 |
 |--------|------|
-| `transgrasp/README.md` | 环境、fix5k / **OpenCLIP 分类器** / ASGrasp 路径、一键命令 |
+| `transgrasp/README.md` | 环境、v2@6k / **OpenCLIP 分类器** / ASGrasp 路径、一键命令 |
 | 端到端表 | 10～20 张 val：GT-ROI Acc、SegMAN-ROI Acc、E2E 细分类 Acc、仿真成功率 |
 | 论文/答辩图 | 原图 \| SegMAN mask \| OpenCLIP 细类标签 \| PyBullet 截图 |
 
@@ -597,7 +603,7 @@ python transgrasp/ui/app.py
 
 ```text
 SegMAN/
-├── segmentation/                         # 已有；fix5k 权重在此
+├── segmentation/                         # 已有；v2@6k 权重在此
 ├── transgrasp/
 │   ├── data/
 │   │   ├── build_roi_dataset.py          # GT / SegMAN mask → ROI
@@ -619,9 +625,9 @@ SegMAN/
 ├── data/
 │   ├── trans10k/                         # 原始数据
 │   ├── trans10k_roi_gt/                  # GT mask 裁 ROI（训练）
-│   └── trans10k_roi_segman/              # fix5k 裁 ROI（部署评测）
+│   └── trans10k_roi_segman/              # v2@6k 裁 ROI（部署评测）
 └── outputs/
-    ├── trans10k_lass_mmscope_fix5k/      # 分割
+    ├── trans10k_lass_mmscope_balanced_v2/  # 分割（正式 iter_6000）
     └── openclip_classifier/              # 细分类权重与评测
         ├── t1_freeze/best.pth
         └── eval_on_segman_roi/
@@ -629,16 +635,16 @@ SegMAN/
 
 ---
 
-## 10. 与路线 B 的衔接（fix5k 固定）
+## 10. 与路线 B 的衔接（v2@6k 固定）
 
-| 环节 | 使用 fix5k 的方式 |
+| 环节 | 使用 v2@6k 的方式 |
 |------|-------------------|
 | OpenCLIP **训练** ROI | **GT mask**（`trans10k_roi_gt`） |
-| OpenCLIP **部署评测** ROI / E2E | **fix5k mask**（`trans10k_roi_segman` + `segment_and_classify`） |
-| ASGrasp / PyBullet | **必须** fix5k（或同一 `infer_segman`）出 mask |
+| OpenCLIP **部署评测** ROI / E2E | **v2@6k mask**（`trans10k_roi_segman` + `segment_and_classify`） |
+| ASGrasp / PyBullet | **必须** v2@6k（或同一 `infer_segman`）出 mask |
 | 论文叙述 | 阶段二 SegMAN 分割；阶段三 **OpenCLIP ROI 细分类** + 抓取仿真 |
 
-**OpenCLIP 一键命令速查**（容器内 `/workspace/segman`）：
+**OpenCLIP 一键命令速查**（工作目录 `D:\SegMAN-main\SegMAN`，详见《OpenCLIP_细分类训练与优化指南.md》）：
 
 ```bash
 # 1) 环境
@@ -653,7 +659,7 @@ python transgrasp/classification/train_openclip_classifier.py \
 
 # 4) E2E：SegMAN + OpenCLIP
 python transgrasp/pipelines/segment_and_classify.py --backend openclip \
-  --seg-checkpoint segmentation/outputs/trans10k_lass_mmscope_fix5k/iter_5000.pth \
+  --seg-checkpoint segmentation/outputs/trans10k_lass_mmscope_balanced_v2/iter_6000.pth \
   --classifier-checkpoint outputs/openclip_classifier/t1_freeze/best.pth
 ```
 
