@@ -3,12 +3,13 @@
 
 | 项目          | 内容                                                                                   |
 | ----------- | ------------------------------------------------------------------------------------ |
-| 文档版本 | v1.1 |
+| 文档版本 | **v1.2** |
 | **项目根目录** | `D:\SegMAN-main\SegMAN`（conda 环境 `segman`） |
 | **OpenCLIP 源码** | `D:\SegMAN-main\open_clip-3`（与 SegMAN **平级**，不在 SegMAN 内） |
-| 编写日期        | 2026-05-24                                                                           |
+| 编写日期        | 2026-05-24（v1.2 更新 2026-05-25）                                                           |
 | 适用场景        | SegMAN **v2@6k** 分割 → ROI 裁剪 → **OpenCLIP 视觉编码器 + 分类头** → 11 类细分类                    |
-| 前置分割        | `segmentation/outputs/trans10k_lass_mmscope_balanced_v2/iter_6000.pth`               |
+| 前置分割        | `segmentation/outputs/trans10k_lass_mmscope_balanced_v2/iter_6000.pth`（mIoU **81.80%**）    |
+| 分割评测归档    | `.../eval_deliver_6k/eval_single_scale_20260524_133106.json`                                 |
 | 分割配置        | `local_configs/segman_trans/segman_b_trans10k_lass_balanced_v2.py`                   |
 | OpenCLIP 安装 | 在 `segman` 环境中 `pip install open_clip_torch`（推荐）；或 `cd D:\SegMAN-main\open_clip-3` 后 `pip install -e .` |
 | 关联文档 | 《路线C_细分类与抓取实施步骤.md》《..\open_clip-3\OpenCLIP_代码结构与SegMAN细分类应用分析.md》 |
@@ -31,6 +32,14 @@ D:\SegMAN-main\
 | editable 安装 OpenCLIP | `D:\SegMAN-main\open_clip-3` |
 
 Docker 若只挂载 SegMAN → `/workspace/segman`，容器内**默认没有** open_clip-3；请用 PyPI 包或额外挂载 `open_clip-3`。
+
+**MMSeg 数据路径（Docker / 本地均已转换）**：
+
+| 用途 | 路径 |
+|------|------|
+| MMSeg Trans10K（推荐 `--data-root`） | `segmentation/data/trans10k/` |
+| 项目根下（若存在） | `data/trans10k/` |
+| HF 原始 | `data/Trans10K-v2/` |
 
 ---
 
@@ -69,6 +78,59 @@ Docker 若只挂载 SegMAN → `/workspace/segman`，容器内**默认没有** o
 
 **核心公式**：`logits = Head( OpenCLIP.encode_image( preprocess(roi) ) )`，损失为 **CrossEntropy**（可加 label smoothing、class weights）。
 
+### 1.4 当前进度与 T1 基线（2026-05-25）
+
+| 阶段 | 状态 | 说明 |
+|------|------|------|
+| §2 环境 + 冒烟 | ✅ | ViT-B-16 feature dim 512 |
+| §3-1～3-4 数据 | ✅ | 见下表 |
+| §4 分类代码 | ✅ | `transgrasp/classification/` 已建 |
+| §6 T1 linear | ✅ | 首轮 baseline 70.18% |
+| §8 sweep | ✅ | **best 72.62%**（无 class_weights） |
+| §6 Z0 零样本 | ⬜ | `eval_openclip_zeroshot.py` 待建 |
+| §7-3 E2E | ⬜ | `segment_and_classify.py` 待建 |
+
+**ROI 数据集（已导出）**：
+
+| 目录 | ROI 数 | 用途 |
+|------|--------|------|
+| `data/trans10k_roi_gt/train` | 15,746 | T1 训练 |
+| `data/trans10k_roi_gt/val` | 3,105 | GT 上限评测 |
+| `data/trans10k_roi_segman/val` | 3,233 | 部署向评测 |
+
+**§8 Sweep 最优**（`outputs/openclip_classifier/sweep_s8/s8_lr1e3_noweight/best.pth`，2026-05-25）：
+
+| 评测集 | Top-1 Acc | macro F1 | vs baseline |
+|--------|-----------|----------|-------------|
+| GT-ROI val | **72.62%** | 70.43% | **+2.44 pt** |
+| SegMAN-ROI val | **64.12%** | 58.45% | **+1.67 pt** |
+| **ΔAcc** | **−8.50%** | — | — |
+
+**§8 五组排名（GT-ROI Acc）**：
+
+| 排名 | 实验 | Acc | 结论 |
+|------|------|-----|------|
+| 1 | **无 class_weights**（lr=1e-3 linear） | **72.62%** | **采用** |
+| 2 | MLP lr=5e-4 | 70.24% | 无显著增益 |
+| 3 | baseline（有 weights） | 70.18% | 被替代 |
+| 4 | label_smoothing=0 | 70.11% | 无增益 |
+| 5 | lr=5e-4 linear | 70.02% | 无增益 |
+| 6 | lr=1e-2 linear | 68.63% | 过大，勿用 |
+
+**各类 F1（§8 best，GT-ROI）**：eyeglass 94%、cup 91%、freezer 83% 提升明显；**shelf 49%**、window 51%、door 57% 仍为瓶颈。
+
+**结论**：§8 P1～P4 已完成；**关闭 class_weights** 为唯一有效改动；距 **≥80%** 仍差 ~7 pt，下一步 **P6 ViT-L-14** 或 **P7 T2 解冻**。
+
+**T1 首轮（已被 §8 best 替代，保留作对照）**：
+
+| 评测集 | Top-1 Acc | macro F1 | 说明 |
+|--------|-----------|----------|------|
+| GT-ROI val | **70.18%** | 67.67% | 训练上限 |
+| SegMAN-ROI val | **62.45%** | 57.90% | 部署向 |
+| **ΔAcc** | **−7.73%** | — | 分割误差传递 |
+
+**各类 F1（T1 首轮）**：eyeglass 93%、cup 90% 较好；shelf 41%、window 50%、door 55%。
+
 ---
 
 ## 2. 环境与依赖
@@ -88,9 +150,9 @@ cd D:\SegMAN-main\SegMAN
 
 ```bash
 docker exec -it segman_train bash
-conda activate segman
-cd D:\SegMAN-main\SegMAN
-# open_clip-3 不在此目录内；若需 editable 安装，另挂载 /workspace/open_clip-3
+source /root/anaconda3/etc/profile.d/conda.sh && conda activate segman
+cd /workspace/segman
+# open_clip-3 不在此目录内；请用 pip install open_clip_torch
 ```
 
 ---
@@ -229,13 +291,13 @@ print('wrote', len(classes)-1, 'foreground classes')
 
 **目的**：得到标签干净的 crop 图，作为 OpenCLIP **主训练集**。
 
-**脚本（待建）**：`transgrasp/data/build_roi_dataset.py`
+**脚本**：`transgrasp/data/build_roi_dataset.py`（**已完成**）
 
 ```bash
-cd D:\SegMAN-main\SegMAN
+cd D:\SegMAN-main\SegMAN   # Docker: cd /workspace/segman
 
 python transgrasp/data/build_roi_dataset.py \
-  --data-root data/trans10k \
+  --data-root segmentation/data/trans10k \
   --split train \
   --mask-source gt \
   --out-root data/trans10k_roi_gt/train \
@@ -243,7 +305,7 @@ python transgrasp/data/build_roi_dataset.py \
   --min-area 64
 
 python transgrasp/data/build_roi_dataset.py \
-  --data-root data/trans10k \
+  --data-root segmentation/data/trans10k \
   --split val \
   --mask-source gt \
   --out-root data/trans10k_roi_gt/val \
@@ -265,7 +327,9 @@ python transgrasp/data/build_roi_dataset.py \
 python transgrasp/data/stats_roi_dataset.py --root data/trans10k_roi_gt
 ```
 
-每类 train 样本数建议 ≥ 50；val 每类 ≥ 30。随机目视 20 张 crop，类名与图像一致。
+每类 train 样本数建议 ≥ 50；val 每类 ≥ 30（**freezer** val 仅 20，属数据集长尾）。随机目视 20 张 crop，类名与图像一致。
+
+**已验收（2026-05-24）**：train 15,746 / val 3,105 ROI。
 
 ---
 
@@ -307,6 +371,15 @@ python transgrasp/data/build_roi_dataset.py \
 
 **验收**：`trans10k_roi_segman/val` 样本数与 GT-ROI 同量级；记录与 GT-ROI 的类别分布差异。
 
+**已验收（2026-05-25）**：`pred_sem_seg_val/` 1000 张 class-id PNG；`trans10k_roi_segman/val` 3,233 ROI。
+
+> **`pred_sem_seg_val/` 为何发黑？**  
+> 保存的是 **单通道类别 id（0–11）**，不是彩色可视化。肉眼几乎全黑属正常；供 `build_roi_dataset.py` 读取，勿用 `tools/test.py --show-dir` 的 RGB 叠加图替代。
+
+> **`eval_deliver_6k/` 与 `pred_sem_seg_val/` 区别**  
+> - `eval_deliver_6k/`：mIoU 评测 JSON（`--work-dir`），**不含**预测 mask。  
+> - `pred_sem_seg_val/`：§3-3 专用 class-id 语义图。
+
 ---
 
 ### 步骤 3-4：导出类别权重
@@ -320,11 +393,13 @@ python transgrasp/data/export_class_weights.py \
   --export-weights data/trans10k_roi_gt/meta/class_weights.npy
 ```
 
-**目的说明**：`class_weights` 通常为 `1/sqrt(freq)` 或 effective number of samples；训练时传入 `--class-weights`。
+**目的说明**：默认 `1/sqrt(freq)`，均值归一化为 1；可选 `--method inv|effective`。
+
+**已验收（2026-05-25）**：`meta/class_weights.npy`（11 维 float32）。
 
 ---
 
-## 4. 代码结构
+## 4. 代码结构（已实现）
 
 **目的**：训练、评测、推理共用同一 encoder + head，避免 preprocess 不一致。
 
@@ -333,18 +408,22 @@ transgrasp/
 ├── configs/
 │   └── openclip_classifier.yaml
 ├── classification/
-│   ├── openclip_encoder.py      # 加载 model + preprocess_val/train
-│   ├── roi_classifier.py          # Linear / MLP
-│   ├── dataset.py                 # ROI Dataset + DataLoader
+│   ├── __init__.py              # 空文件即可，标记 Python 包
+│   ├── openclip_encoder.py
+│   ├── roi_classifier.py
+│   ├── dataset.py
+│   ├── metrics.py
+│   ├── checkpoint_utils.py
 │   ├── train_openclip_classifier.py
 │   ├── eval_openclip_classifier.py
 │   └── infer_openclip_roi.py
 ├── data/
 │   ├── build_roi_dataset.py
+│   ├── export_sem_seg_preds.py  # §3-3：导出 class-id 预测 mask
 │   ├── stats_roi_dataset.py
 │   └── export_class_weights.py
 └── pipelines/
-    └── segment_and_classify.py
+    └── segment_and_classify.py    # 待建（§7-3）
 ```
 
 **配置文件示例** `transgrasp/configs/openclip_classifier.yaml`：
@@ -412,7 +491,7 @@ python transgrasp/classification/eval_openclip_zeroshot.py \
 **目的**：参数最少、收敛最快；对应 Scaling Laws 论文 **linear probing** 范式。
 
 ```bash
-cd D:\SegMAN-main\SegMAN
+cd D:\SegMAN-main\SegMAN   # Docker: cd /workspace/segman
 
 python transgrasp/classification/train_openclip_classifier.py \
   --config transgrasp/configs/openclip_classifier.yaml \
@@ -429,8 +508,11 @@ python transgrasp/classification/train_openclip_classifier.py \
   --label-smoothing 0.1 \
   --num-workers 4 \
   --class-weights data/trans10k_roi_gt/meta/class_weights.npy \
+  --patience 8 \
   --seed 42
 ```
+
+> **CLI 与 yaml**：命令行显式传入的参数（如 `--epochs`）**优先于** yaml 默认值；避免冒烟时 yaml 的 `epochs: 40` 覆盖 `--epochs 1`。
 
 
 | 参数                      | 推荐值       | 目的                  |
@@ -442,19 +524,29 @@ python transgrasp/classification/train_openclip_classifier.py \
 | `--batch-size 64`       | 32～128    | 视显存调整               |
 | `--label-smoothing 0.1` | 0～0.1     | 缓解易混类过自信            |
 | `--class-weights`       | `.npy`    | 长尾类（shelf 等）加权      |
+| `--patience 8`          | 5～10      | val 无提升时 early stop   |
 
 
 **训练过程监控**：
 
 ```bash
-# 若脚本支持 tensorboard
-tensorboard --logdir outputs/openclip_classifier/t1_freeze_vitb16 --port 6006
+# 训练日志在终端；结束后见 history.json
+cat outputs/openclip_classifier/t1_freeze_vitb16/history.json
+
+# 当前 best 指标（训练中实时更新）
+cat outputs/openclip_classifier/t1_freeze_vitb16/eval_gt_roi/summary.json
 ```
+
+**首轮实测（2026-05-25）**：
+
+- 约 **48 min** / 16 epoch（early stop）；best @ **epoch 8**
+- train loss 1.74 → 1.40 稳定下降；val Acc 在 **~69–70%** 平台期
+- 每 epoch 约 **2–4.5 min**（首轮含模型下载更慢）
 
 **验收**：
 
-- 产出 `best.pth`、`last.pth`；
-- GT-ROI val **Top-1 Acc ≥ 80%**（课题基线，可按需提高）；
+- 产出 `best.pth`、`last.pth`、`history.json`；
+- GT-ROI val **Top-1 Acc ≥ 80%**（课题基线；**首轮 70.18% 未达标**）；
 - `per_class_report.json` 中 cup/bowl/jar_kettle F1 可接受；
 - train/val loss 曲线无严重发散。
 
@@ -587,10 +679,12 @@ python transgrasp/classification/eval_openclip_classifier.py \
 **验收**：生成 `summary.json`（Acc、混淆矩阵）。记录：
 
 ```text
-ΔAcc = Acc(GT-ROI) − Acc(SegMAN-ROI)
+ΔAcc = Acc(GT-ROI) − Acc(SegMAN-ROI)   # 首轮：70.18% − 62.45% = 7.73%
 ```
 
 用于说明 SegMAN v2@6k 分割瓶颈（尤其 shelf/box/door IoU 较低类）。
+
+**已验收（2026-05-25）**：`outputs/openclip_classifier/eval_on_segman_roi/summary.json`。
 
 ---
 
@@ -601,11 +695,11 @@ python transgrasp/classification/eval_openclip_classifier.py \
 ```bash
 python transgrasp/classification/infer_openclip_roi.py \
   --checkpoint outputs/openclip_classifier/t1_freeze_vitb16/best.pth \
-  --clip-model ViT-B-16 \
-  --clip-pretrained laion2b_s34b_b88k \
-  --image data/trans10k_roi_gt/val/images/cup_001042.jpg \
+  --image data/trans10k_roi_gt/val/images/val_cup_000000.jpg \
   --topk 3
 ```
+
+**说明**：`best.pth` 内 `meta` 已含 `clip_model` / `clip_pretrained`，无需重复传 CLIP 参数。
 
 **预期输出**：`fine_class=cup, confidence=0.91, top3=[...]`
 
@@ -656,6 +750,8 @@ python transgrasp/pipelines/segment_and_classify.py \
 
 **目的**：T1 未达标时，按优先级逐项调整，避免一次改太多无法归因。
 
+> **首轮 T1 启示**：epoch 8 后 val 不再提升 → 优先调 **lr / head 结构**，而非单纯加 epoch；shelf/window/door 为弱类，与 SegMAN 分割弱项一致。
+
 ### 8.1 推荐搜索顺序
 
 
@@ -665,7 +761,7 @@ python transgrasp/pipelines/segment_and_classify.py \
 | 2   | `--head`                | linear → mlp             | 易混类非线性边界                                           |
 | 3   | `--class-weights`       | 开/关；手动加重 shelf           | 分割弱类 ROI 噪声大                                       |
 | 4   | `--label-smoothing`     | `{0, 0.05, 0.1}`         | 过自信误分类                                             |
-| 5   | `--epochs` + early stop | 30～50，patience=5         | 防过拟合                                               |
+| 5   | `--epochs` + early stop | 30～50，**patience=8**    | 首轮 epoch 8 即 best，过长训练无益 |
 | 6   | backbone                | B-16 → L-14              | 特征容量                                               |
 | 7   | T2 解冻                   | blocks=1～2, lr=1e-6～5e-5 | 最后手段                                               |
 
@@ -704,35 +800,73 @@ model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms(
 # 训练用 preprocess_train；验证/推理用 preprocess_val
 ```
 
-**禁止**：自写 `Normalize(0.485, 0.456, 0.406)`（ImageNet）替代 OpenCLIP 默认 mean/std。
+### 8.5 批量执行 §8 搜索（推荐）
+
+**脚本**：`transgrasp/classification/run_sweep_s8.py` — 按 §8.1 优先级顺序训练并写入 `sweep_results.json`。
+
+```bash
+cd /workspace/segman   # 或 D:\SegMAN-main\SegMAN
+
+# 全流程（约 4～6 h：5 组实验 × ~1h）
+python transgrasp/classification/run_sweep_s8.py
+
+# 仅跑 P1 学习率
+python transgrasp/classification/run_sweep_s8.py --ids s8_lr1e2_linear s8_lr5e4_linear
+
+# 仅跑 P2 MLP（在 P1 最优 lr 确定后）
+python transgrasp/classification/run_sweep_s8.py --ids s8_mlp5e4
+```
+
+**输出**：
+
+| 文件 | 说明 |
+|------|------|
+| `outputs/openclip_classifier/sweep_s8/sweep_results.json` | 各实验 val Acc |
+| `outputs/openclip_classifier/sweep_s8/sweep_summary.json` | 与 baseline 排序 |
+| `outputs/openclip_classifier/sweep_s8/<exp_id>/best.pth` | 各组权重 |
+
+**实验列表**（相对 baseline `t1_freeze_vitb16` @ 70.18%）：
+
+| id | §8 优先级 | 变更 |
+|----|----------|------|
+| `s8_lr1e2_linear` | P1 | lr=1e-2 |
+| `s8_lr5e4_linear` | P1 | lr=5e-4 |
+| `s8_mlp5e4` | P2 | MLP + lr=5e-4 |
+| `s8_lr1e3_noweight` | P3 | 关闭 class_weights |
+| `s8_lr1e3_ls0` | P4 | label_smoothing=0 |
+
+Sweep 结束后取 `sweep_summary.json` 中 **best**，再跑 §7-1 SegMAN-ROI 评测；若仍 <80%，再考虑 §8.1 的 P6 ViT-L-14 或 P7 T2。
 
 ---
 
-## 9. 产出物清单
+
+| 路径 | 说明 | 状态 |
+|------|------|------|
+| `outputs/openclip_classifier/sweep_s8/s8_lr1e3_noweight/best.pth` | **§8 当前最优** | ✅ 72.62% / 64.12% |
+| `outputs/openclip_classifier/t1_freeze_vitb16/best.pth` | T1 首轮 baseline | ✅ 70.18% |
+| `.../eval_gt_roi/summary.json` | GT-ROI Acc / 混淆矩阵 | ✅ |
+| `outputs/openclip_classifier/eval_on_segman_roi/summary.json` | SegMAN-ROI 部署向 | ✅ 62.45% |
+| `.../per_class_report.json` | 每类 P/R/F1 | ✅ |
+| `segmentation/outputs/.../pred_sem_seg_val/` | v2@6k class-id mask | ✅ |
+| `.../e2e_val_predictions.json` | 端到端预测 | ⬜ |
+| `outputs/openclip_classifier/zeroshot_baseline/` | 零样本对照 | ⬜ |
 
 
-| 路径                                                      | 说明                                  |
-| ------------------------------------------------------- | ----------------------------------- |
-| `outputs/openclip_classifier/t1_freeze_vitb16/best.pth` | **主交付**分类器（含 head 与可选 encoder 微调权重） |
-| `.../eval_gt_roi/summary.json`                          | GT-ROI 验证 Acc / 混淆矩阵                |
-| `.../eval_on_segman_roi/summary.json`                   | SegMAN-ROI 部署向 Acc                  |
-| `.../per_class_report.json`                             | 每类 P/R/F1                           |
-| `.../e2e_val_predictions.json`                          | 端到端实例级预测                            |
-| `outputs/openclip_classifier/zeroshot_baseline/`        | 可选零样本对照                             |
-
-
-**best.pth 建议内容**（实现时）：
+**best.pth 内容**（已实现）：
 
 ```python
 {
-  'head_state_dict': ...,
-  'clip_model': 'ViT-B-16',
-  'clip_pretrained': 'laion2b_s34b_b88k',
-  'num_classes': 11,
-  'class_names': [...],
-  'freeze_clip': True,
-  'epoch': ...,
-  'val_acc': ...,
+  'head': {...},           # ClassificationHead state_dict
+  'meta': {
+    'clip_model': 'ViT-B-16',
+    'clip_pretrained': 'laion2b_s34b_b88k',
+    'head': 'linear',
+    'num_classes': 11,
+    'feat_dim': 512,
+    'class_names': [...],
+  },
+  'epoch': 8,
+  'val_acc': 0.7018,
 }
 ```
 
@@ -743,6 +877,11 @@ model, preprocess_train, preprocess_val = open_clip.create_model_and_transforms(
 
 | 现象                               | 可能原因             | 处理                                                 |
 | -------------------------------- | ---------------- | -------------------------------------------------- |
+| `pred_sem_seg_val/` 图片全黑         | class-id PNG 非可视化 | 正常；目视请用 ROI crop 或彩色 overlay |
+| `--show-dir` 不能裁 ROI             | 输出 RGB 叠加图       | 改用 `export_sem_seg_preds.py` |
+| `eval_deliver_6k/` 无预测 mask      | 仅 mIoU JSON       | §3-3 需单独导出 `pred_sem_seg_val/` |
+| yaml 覆盖 CLI `--epochs`           | apply_config 顺序   | 已修复：CLI 优先；或不用 `--config` |
+| val Acc ~70% 达不到 80%            | 线性头 + 易混类      | §8：MLP / 调 lr / T2 |
 | `feature dim` 报错 / Unknown model | timm 过旧          | `pip install -U timm`                              |
 | HF 权重下载失败                        | 网络               | 镜像或手动下载 `.bin` 后 `--clip-pretrained /path/to/ckpt` |
 | train Acc 高、val Acc 低            | 过拟合              | 减 epoch、加 dropout、label smoothing                  |
@@ -772,34 +911,49 @@ ASGrasp predict_grasp()  ──→  PyBullet 仿真
 
 ---
 
-## 12. 命令速查（Windows：`D:\SegMAN-main\SegMAN`）
+## 12. 命令速查
+
+**Windows**（`D:\SegMAN-main\SegMAN`）：
 
 ```powershell
 conda activate segman
 cd D:\SegMAN-main\SegMAN
 
-# 0. 安装（若未装）
-pip install -U open_clip_torch timm
+# 数据 §3-2
+python transgrasp/data/build_roi_dataset.py --data-root segmentation/data/trans10k --split train --mask-source gt --out-root data/trans10k_roi_gt/train --bbox-pad 0.15 --min-area 64
 
-# 1. 冒烟
-python -c "import open_clip,torch; m,_,p=open_clip.create_model_and_transforms('ViT-B-16','laion2b_s34b_b88k'); print('ok', m.visual.output_dim)"
+# 数据 §3-4
+python transgrasp/data/export_class_weights.py --root data/trans10k_roi_gt --split train --export-weights data/trans10k_roi_gt/meta/class_weights.npy
 
-# 2. T1 训练
+# T1 训练 §6
 python transgrasp/classification/train_openclip_classifier.py `
   --roi-root data/trans10k_roi_gt --work-dir outputs/openclip_classifier/t1_freeze_vitb16 `
   --clip-model ViT-B-16 --clip-pretrained laion2b_s34b_b88k `
   --freeze-clip --head linear --epochs 40 --batch-size 64 --lr 1e-3 `
-  --class-weights data/trans10k_roi_gt/meta/class_weights.npy
+  --class-weights data/trans10k_roi_gt/meta/class_weights.npy --patience 8
 
-# 3～5. 评测 / E2E（路径同上，见正文 §7）
+# GT-ROI 评测
+python transgrasp/classification/eval_openclip_classifier.py `
+  --checkpoint outputs/openclip_classifier/t1_freeze_vitb16/best.pth `
+  --roi-root data/trans10k_roi_gt --split val `
+  --report-dir outputs/openclip_classifier/t1_freeze_vitb16/eval_gt_roi
+
+# SegMAN-ROI 评测 §7-1
+python transgrasp/classification/eval_openclip_classifier.py `
+  --checkpoint outputs/openclip_classifier/t1_freeze_vitb16/best.pth `
+  --roi-root data/trans10k_roi_segman --split val `
+  --report-dir outputs/openclip_classifier/eval_on_segman_roi
 ```
 
-**分割 test**（目录为 `segmentation\`）：
+**Docker**（`/workspace/segman`）：将上述路径中的 `D:\SegMAN-main\SegMAN` 换为 `/workspace/segman`，命令相同。
+
+**分割 mIoU 归档**（与 §3-3 预测 mask **无关**）：
 
 ```powershell
 cd D:\SegMAN-main\SegMAN\segmentation
 python tools/test.py local_configs/segman_trans/segman_b_trans10k_lass_balanced_v2.py `
-  --checkpoint outputs/trans10k_lass_mmscope_balanced_v2/iter_6000.pth --eval mIoU
+  --checkpoint outputs/trans10k_lass_mmscope_balanced_v2/iter_6000.pth `
+  --eval mIoU --work-dir outputs/trans10k_lass_mmscope_balanced_v2/eval_deliver_6k
 ```
 
 ---
@@ -811,5 +965,8 @@ python tools/test.py local_configs/segman_trans/segman_b_trans10k_lass_balanced_
 | ---------- | --------------------------------------- |
 | 2026-05-24 | v1.0：OpenCLIP ROI 细分类训练、优化、评测、E2E 步骤与命令 |
 | 2026-05-24 | v1.1：路径对齐 Windows 本地布局（SegMAN 与 open_clip-3 平级） |
+| 2026-05-25 | v1.2：§3～§4 实测落地；T1 基线 70.18%/62.45%；修正 data-root、`export_sem_seg_preds`、FAQ 与产出物状态 |
+| 2026-05-25 | v1.2.1：§8.5 增加 `run_sweep_s8.py` 批量调参流程 |
+| 2026-05-25 | v1.2.2：§8 sweep 完成；best=无 class_weights 72.62% GT / 64.12% SegMAN |
 
 

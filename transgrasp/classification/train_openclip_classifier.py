@@ -46,6 +46,8 @@ def parse_args():
     p.add_argument('--label-smoothing', type=float, default=0.1)
     p.add_argument('--num-workers', type=int, default=4)
     p.add_argument('--class-weights', type=str, default=None)
+    p.add_argument('--no-class-weights', action='store_true',
+                   help='Disable class weights even if --class-weights path given')
     p.add_argument('--seed', type=int, default=42)
     p.add_argument('--device', type=str, default='cuda')
     p.add_argument('--resume', type=str, default=None)
@@ -154,7 +156,7 @@ def main():
         num_workers=args.num_workers, pin_memory=device.type == 'cuda')
 
     class_weight = None
-    if args.class_weights:
+    if args.class_weights and not args.no_class_weights:
         wpath = Path(args.class_weights)
         if not wpath.is_absolute():
             wpath = project / wpath
