@@ -30,5 +30,8 @@ def load_checkpoint(path: Path, head: torch.nn.Module, device: torch.device, opt
     ckpt = torch.load(path, map_location=device)
     head.load_state_dict(ckpt['head'])
     if optimizer is not None and 'optimizer' in ckpt:
-        optimizer.load_state_dict(ckpt['optimizer'])
+        try:
+            optimizer.load_state_dict(ckpt['optimizer'])
+        except ValueError as e:
+            print(f'Warning: skip optimizer state ({e}); head weights loaded only.')
     return ckpt

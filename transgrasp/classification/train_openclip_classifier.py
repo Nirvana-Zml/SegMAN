@@ -178,9 +178,16 @@ def main():
         if not rpath.is_absolute():
             rpath = project / rpath
         ckpt = load_checkpoint(rpath, model.head, device, optimizer)
-        start_epoch = int(ckpt.get('epoch', 0)) + 1
         best_acc = float(ckpt.get('val_acc', -1.0))
-        print(f'Resumed from {rpath} epoch={start_epoch} best_acc={best_acc:.4f}')
+        if args.unfreeze_last_blocks > 0:
+            # T2: fresh short fine-tune; keep §8 val_acc as baseline for early stop / best save
+            start_epoch = 0
+            print(
+                f'Resumed head from {rpath} (T2 fine-tune); '
+                f'baseline val_acc={best_acc:.4f}, epochs={args.epochs}')
+        else:
+            start_epoch = int(ckpt.get('epoch', 0)) + 1
+            print(f'Resumed from {rpath} epoch={start_epoch} best_acc={best_acc:.4f}')
 
     with (work_dir / 'train_args.json').open('w', encoding='utf-8') as f:
         json.dump(vars(args), f, indent=2, default=str)
