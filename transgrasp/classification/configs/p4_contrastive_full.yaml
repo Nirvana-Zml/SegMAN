@@ -1,0 +1,17 @@
+# P4-full: full train ROI contrastive + patience + short head ft
+resume: outputs/openclip_classifier/p3_p1_hardmining/best.pth
+roi_root: data/trans10k_roi_gt
+work_dir: outputs/openclip_classifier/p4_contrastive_full
+epochs: 6
+patience: 1
+batch_size: 64
+lr: 2.0e-7
+weight_decay: 0.05
+unfreeze_last_blocks: 4
+max_train_samples: -1
+text_template: "a transparent {name} in an indoor scene"
+head_finetune_epochs: 1
+head_finetune_min_delta: 0.0
+head_lr: 3.0e-6
+eval_every: 1
+seed: 42

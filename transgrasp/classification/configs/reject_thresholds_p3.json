@@ -1,0 +1,17 @@
+{
+  "default": 0.55,
+  "description": "P3 deliver per-class min confidence to accept prediction (Plan B3)",
+  "per_class": {
+    "cup": 0.45,
+    "eyeglass": 0.45,
+    "bottle": 0.50,
+    "bowl": 0.55,
+    "jar_kettle": 0.55,
+    "box": 0.60,
+    "freezer": 0.60,
+    "window": 0.65,
+    "door": 0.70,
+    "wall": 0.65,
+    "shelf": 0.70
+  }
+}

@@ -1,0 +1,17 @@
+# P1 stage-2: deepen to 4 blocks from warmup checkpoint
+roi_root: data/trans10k_roi_gt
+work_dir: outputs/openclip_classifier/p1_unfreeze4_noweight
+clip_model: ViT-B-16
+clip_pretrained: laion2b_s34b_b88k
+head: linear
+unfreeze_last_blocks: 4
+epochs: 10
+batch_size: 32
+lr: 2.0e-6
+head_lr: 5.0e-5
+weight_decay: 0.05
+label_smoothing: 0.1
+patience: 3
+no_class_weights: true
+seed: 42
+resume: outputs/openclip_classifier/p1_warmup_unfreeze2/best.pth

@@ -1,0 +1,17 @@
+# P1 stage-1: warm up 2 blocks + save encoder (reconstruct T2 visual tail)
+roi_root: data/trans10k_roi_gt
+work_dir: outputs/openclip_classifier/p1_warmup_unfreeze2
+clip_model: ViT-B-16
+clip_pretrained: laion2b_s34b_b88k
+head: linear
+unfreeze_last_blocks: 2
+epochs: 8
+batch_size: 32
+lr: 5.0e-6
+head_lr: 1.0e-4
+weight_decay: 0.05
+label_smoothing: 0.1
+patience: 4
+no_class_weights: true
+seed: 42
+resume: outputs/openclip_classifier/deliver_classifier_best.pth

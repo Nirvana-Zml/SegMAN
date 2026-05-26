@@ -14,7 +14,7 @@ if str(PROJECT_ROOT) not in sys.path:
 import torch
 from torch.utils.data import DataLoader
 
-from transgrasp.classification.checkpoint_utils import load_checkpoint
+from transgrasp.classification.checkpoint_utils import load_encoder_trainable_state
 from transgrasp.classification.dataset import ROIDataset, load_class_names
 from transgrasp.classification.metrics import evaluate_model, save_report
 from transgrasp.classification.openclip_encoder import OpenCLIPEncoder, load_openclip
@@ -53,6 +53,12 @@ def build_from_checkpoint(checkpoint_path: Path, device: torch.device):
     )
     model = ROIClassifier(encoder, head).to(device)
     head.load_state_dict(ckpt['head'])
+    if 'encoder' in ckpt:
+        load_encoder_trainable_state(encoder, ckpt['encoder'], device, strict=False)
+    elif int(meta.get('unfreeze_last_blocks', 0)) > 0:
+        print(
+            'Warning: no encoder weights in checkpoint; '
+            'eval uses OpenCLIP pretrained visual tail.')
     return model, preprocess_val, class_names, meta
 
 

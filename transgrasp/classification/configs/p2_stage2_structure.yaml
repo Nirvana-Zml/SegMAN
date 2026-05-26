@@ -1,0 +1,13 @@
+# P2 Stage-2 structure specialist (door / wall / window)
+roi_root: data/trans10k_roi_gt_hier
+work_dir: outputs/openclip_classifier/p2_stage2_structure
+resume_encoder: outputs/openclip_classifier/p1_unfreeze4_noweight/best.pth
+freeze_encoder: true
+head: linear
+epochs: 20
+batch_size: 32
+lr: 5.0e-5
+weight_decay: 0.05
+label_smoothing: 0.1
+patience: 5
+seed: 42

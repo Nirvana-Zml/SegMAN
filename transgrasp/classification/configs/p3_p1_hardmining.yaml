@@ -1,0 +1,20 @@
+# P3-main: hard 2x + augment + resume P1
+roi_root: data/trans10k_roi_gt_p3
+work_dir: outputs/openclip_classifier/p3_p1_hardmining
+resume: outputs/openclip_classifier/p1_unfreeze4_noweight/best.pth
+clip_model: ViT-B-16
+clip_pretrained: laion2b_s34b_b88k
+head: linear
+unfreeze_last_blocks: 4
+epochs: 12
+batch_size: 32
+lr: 1.0e-6
+head_lr: 3.0e-5
+weight_decay: 0.05
+label_smoothing: 0.1
+patience: 4
+no_class_weights: true
+aug: p3
+weighted_sampler: true
+cutmix_prob: 0.3
+seed: 42

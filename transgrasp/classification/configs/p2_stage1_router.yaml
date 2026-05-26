@@ -1,0 +1,14 @@
+# P2 Stage-1 router: structure vs object
+roi_root: data/trans10k_roi_gt_hier
+work_dir: outputs/openclip_classifier/p2_stage1_router
+resume_encoder: outputs/openclip_classifier/p1_unfreeze4_noweight/best.pth
+head: linear
+freeze_encoder: true
+unfreeze_last_blocks: 0
+epochs: 15
+batch_size: 64
+lr: 1.0e-4
+weight_decay: 0.01
+label_smoothing: 0.05
+patience: 4
+seed: 42

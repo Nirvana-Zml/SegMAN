@@ -16,13 +16,15 @@ if str(PROJECT_ROOT) not in sys.path:
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 
 from transgrasp.classification.checkpoint_utils import load_checkpoint, save_checkpoint
 from transgrasp.classification.dataset import ROIDataset, load_class_names
 from transgrasp.classification.metrics import evaluate_model, save_report
 from transgrasp.classification.openclip_encoder import OpenCLIPEncoder, load_openclip
+from transgrasp.classification.roi_augment import cutmix_same_class
 from transgrasp.classification.roi_classifier import ClassificationHead, ROIClassifier
+from transgrasp.classification.weighted_roi_dataset import WeightedROIDataset
 
 
 def parse_args():
@@ -53,6 +55,12 @@ def parse_args():
     p.add_argument('--resume', type=str, default=None)
     p.add_argument('--patience', type=int, default=8, help='Early stopping patience (0=off)')
     p.add_argument('--max-train-samples', type=int, default=-1, help='Debug limit')
+    p.add_argument('--aug', choices=['none', 'p3'], default='none',
+                   help='Train augment (P3: ColorJitter + rotation + batch CutMix)')
+    p.add_argument('--weighted-sampler', action='store_true',
+                   help='Use sample_weights.csv with WeightedRandomSampler')
+    p.add_argument('--cutmix-prob', type=float, default=0.3,
+                   help='Same-class CutMix prob when --aug p3')
     return p.parse_args()
 
 
@@ -77,13 +85,18 @@ def apply_config(args, cfg: dict):
     cli = _cli_overrides()
     for key in (
         'roi_root', 'work_dir', 'clip_model', 'clip_pretrained', 'head',
-        'mlp_hidden', 'mlp_dropout', 'epochs', 'batch_size', 'lr',
-        'weight_decay', 'label_smoothing', 'num_workers', 'seed',
+        'mlp_hidden', 'mlp_dropout', 'epochs', 'batch_size', 'lr', 'head_lr',
+        'weight_decay', 'label_smoothing', 'num_workers', 'seed', 'patience',
+        'unfreeze_last_blocks', 'resume', 'aug', 'cutmix_prob',
     ):
         if key in cfg and key not in cli:
             setattr(args, key, cfg[key])
     if cfg.get('freeze_clip') and 'freeze_clip' not in cli:
         args.freeze_clip = True
+    if cfg.get('no_class_weights') and 'no_class_weights' not in cli:
+        args.no_class_weights = True
+    if cfg.get('weighted_sampler') and 'weighted_sampler' not in cli:
+        args.weighted_sampler = True
 
 
 def set_seed(seed: int):
@@ -116,6 +129,9 @@ def build_model(args, device, class_names: list[str]):
         'class_names': class_names,
         'freeze_clip': args.freeze_clip,
         'unfreeze_last_blocks': args.unfreeze_last_blocks,
+        'aug': args.aug,
+        'weighted_sampler': args.weighted_sampler,
+        'cutmix_prob': args.cutmix_prob,
     }
     return model, preprocess_train, preprocess_val, meta
 
@@ -143,14 +159,32 @@ def main():
 
     model, preprocess_train, preprocess_val, meta = build_model(args, device, class_names)
 
-    train_ds = ROIDataset(roi_root, 'train', transform=preprocess_train, class_names=class_names)
+    use_weighted = args.weighted_sampler or args.aug == 'p3'
+    if use_weighted:
+        train_ds = WeightedROIDataset(
+            roi_root, 'train', transform=preprocess_train,
+            class_names=class_names, aug=args.aug)
+    else:
+        train_ds = ROIDataset(
+            roi_root, 'train', transform=preprocess_train, class_names=class_names)
     val_ds = ROIDataset(roi_root, 'val', transform=preprocess_val, class_names=class_names)
     if args.max_train_samples > 0:
         train_ds.rows = train_ds.rows[: args.max_train_samples]
 
-    train_loader = DataLoader(
-        train_ds, batch_size=args.batch_size, shuffle=True,
-        num_workers=args.num_workers, pin_memory=device.type == 'cuda')
+    if args.weighted_sampler and hasattr(train_ds, 'get_weight'):
+        weights = [train_ds.get_weight(i) for i in range(len(train_ds))]
+        sampler = WeightedRandomSampler(
+            weights=torch.tensor(weights, dtype=torch.double),
+            num_samples=len(weights),
+            replacement=True,
+        )
+        train_loader = DataLoader(
+            train_ds, batch_size=args.batch_size, sampler=sampler,
+            num_workers=args.num_workers, pin_memory=device.type == 'cuda')
+    else:
+        train_loader = DataLoader(
+            train_ds, batch_size=args.batch_size, shuffle=True,
+            num_workers=args.num_workers, pin_memory=device.type == 'cuda')
     val_loader = DataLoader(
         val_ds, batch_size=args.batch_size, shuffle=False,
         num_workers=args.num_workers, pin_memory=device.type == 'cuda')
@@ -177,14 +211,15 @@ def main():
         rpath = Path(args.resume)
         if not rpath.is_absolute():
             rpath = project / rpath
-        ckpt = load_checkpoint(rpath, model.head, device, optimizer)
+        ckpt = load_checkpoint(rpath, model.head, device, optimizer, model.encoder)
         best_acc = float(ckpt.get('val_acc', -1.0))
         if args.unfreeze_last_blocks > 0:
-            # T2: fresh short fine-tune; keep §8 val_acc as baseline for early stop / best save
+            # T2/P1: fresh short fine-tune; keep prior val_acc as baseline for early stop / best save
             start_epoch = 0
+            prev_blocks = int(ckpt.get('meta', {}).get('unfreeze_last_blocks', 0))
             print(
-                f'Resumed head from {rpath} (T2 fine-tune); '
-                f'baseline val_acc={best_acc:.4f}, epochs={args.epochs}')
+                f'Resumed head from {rpath} (unfreeze={args.unfreeze_last_blocks}, '
+                f'prev={prev_blocks}); baseline val_acc={best_acc:.4f}, epochs={args.epochs}')
         else:
             start_epoch = int(ckpt.get('epoch', 0)) + 1
             print(f'Resumed from {rpath} epoch={start_epoch} best_acc={best_acc:.4f}')
@@ -194,6 +229,7 @@ def main():
 
     history = []
     bad_epochs = 0
+    saved_best_this_run = False
     for epoch in range(start_epoch, args.epochs):
         model.train()
         if args.freeze_clip and args.unfreeze_last_blocks == 0:
@@ -204,6 +240,9 @@ def main():
         for images, targets, _ in train_loader:
             images = images.to(device, non_blocking=True)
             targets = targets.to(device, non_blocking=True)
+            if args.aug == 'p3':
+                images, targets = cutmix_same_class(
+                    images, targets, prob=args.cutmix_prob)
             optimizer.zero_grad(set_to_none=True)
             logits = model(images)
             loss = criterion(logits, targets)
@@ -229,11 +268,16 @@ def main():
             f'Epoch {epoch:03d}  loss={train_loss:.4f}  val_acc={val_acc:.4f}  '
             f'macro_f1={val_metrics["macro_f1"]:.4f}  ({elapsed:.1f}s)')
 
-        save_checkpoint(work_dir / 'last.pth', model.head, meta, optimizer, epoch, val_acc)
+        save_checkpoint(
+            work_dir / 'last.pth', model.head, meta, optimizer, epoch, val_acc,
+            encoder=model.encoder)
         if val_acc >= best_acc:
             best_acc = val_acc
             bad_epochs = 0
-            save_checkpoint(work_dir / 'best.pth', model.head, meta, optimizer, epoch, val_acc)
+            save_checkpoint(
+                work_dir / 'best.pth', model.head, meta, optimizer, epoch, val_acc,
+                encoder=model.encoder)
+            saved_best_this_run = True
             save_report(val_metrics, work_dir / 'eval_gt_roi', prefix='summary')
         else:
             bad_epochs += 1
@@ -242,6 +286,12 @@ def main():
             print(f'Early stop at epoch {epoch} (patience={args.patience})')
             break
 
+    if not saved_best_this_run and (work_dir / 'last.pth').is_file():
+        import shutil
+        shutil.copy2(work_dir / 'last.pth', work_dir / 'best.pth')
+        print(
+            f'No epoch beat baseline {best_acc:.4f}; '
+            f'copied last.pth -> best.pth for eval/diagnostics.')
     with (work_dir / 'history.json').open('w', encoding='utf-8') as f:
         json.dump(history, f, indent=2)
     print(f'Done. best val_acc={best_acc:.4f}  -> {work_dir / "best.pth"}')
