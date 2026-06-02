@@ -2,7 +2,7 @@
 
 | 项目 | 内容 |
 |------|------|
-| 文档版本 | v1.1 |
+| 文档版本 | v1.2 |
 | 编写日期 | 2026-05-26 |
 | 前置评测 | [E2E_segment_and_classify_测试说明.md](./E2E_segment_and_classify_测试说明.md) §10 |
 | E2E 报告 | `outputs/e2e_segment_classify/val_full/e2e_metrics_report.md` |
@@ -194,20 +194,14 @@ X   P3+P2 级联                        → 已证 GT 75.27% < P3 单头
 
 **实现位置**：`transgrasp/pipelines/segment_and_classify.py` → `match_instances_to_gt()`。
 
-### E1-3 验收
+### E1-3 验收（公平 GT 口径）
+
+**强制约定**：GT 实例提取固定 `min_area=64`、无 NMS（`build_gt_extract_config`）；仅对 **预测 mask** 施加下表后处理。
 
 ```bash
-# 基线（已有）
-# outputs/e2e_segment_classify/val_full/
-
-# E1 实验（改代码后）
-python transgrasp/pipelines/segment_and_classify.py \
-  --eval-split val --max-images -1 \
-  --out-dir outputs/e2e_improve/e1_postprocess \
-  --min-area 128
-
-python transgrasp/pipelines/summarize_e2e_eval.py \
-  --eval-dir outputs/e2e_improve/e1_postprocess
+bash scripts/run_e2e_regression.sh
+# 或指定参数：
+# bash scripts/run_e2e_regression.sh --min-area 128 --nms-iou 0.5 --iou-match 0.25 --min-area-shelf 32
 ```
 
 | 闸门 | 条件 | 说明 |
@@ -458,19 +452,23 @@ python transgrasp/pipelines/summarize_e2e_eval.py --eval-dir "${OUT}"
 | strict_e2e_all_gt | ≈49.9% |
 | wall 未匹配数 | ≈669 |
 | door 未匹配数 | ≈359 |
-| E2-0 根因占比 | **待填**（E2-0 完成后更新） |
+| E2-0 根因占比 | miss **81.9%**（见 `e2_audit_baseline/`） |
 
-### 11.2 实验台账（待填）
+### 11.2 实验台账（2026-05-26 执行）
 
-**填表规则**：除指标外，必须记录 **相对基线的失败案例变化**（未匹配实例数、冗余预测数），便于判断改进是否「真修复」。
+**公平 GT=3105**；详见 `outputs/e2e_improve/e2_execution_summary.md`。
 
-| 实验 ID | 内容 | match_rate | pred_gt_ratio | redundancy_drop | strict E2E | grasp Acc | wall 未匹配 Δ | door 未匹配 Δ | 主导根因变化 | 结论 |
-|---------|------|------------|---------------|-----------------|------------|-----------|---------------|---------------|-------------|------|
-| baseline | val_full v2@6k | 59.32% | 1.148 | — | 49.9% | 90.83% | — | — | — | 基线 |
-| E1-001 | min_area=128 | | | | | | | | — | |
-| E1-002 | NMS + min_area | | | | | | | | — | |
-| E2-0 | 根因审计 | — | — | — | — | — | 填占比% | 填占比% | miss/frag/… | 决策输入 |
-| E2-001 | e2weak（按决策表） | | | | | | 目标 −80 | 目标 −40 | adhesion↓? | |
+| 实验 ID | 内容 | match_rate | pred_gt_ratio | redundancy_drop | strict E2E | grasp Acc | wall 未匹配 Δ | door 未匹配 Δ | E1_PASS |
+|---------|------|------------|---------------|-----------------|------------|-----------|---------------|---------------|---------|
+| baseline | val_full | 59.32% | 1.148 | — | 49.9% | 90.83% | — | — | — |
+| E1-001 | min_area=128 | 58.20% | 1.032 | 78.2% | 49.3% | 84.67% | −18（669→687） | −12 | ❌ |
+| E1-002 | +NMS | 58.20% | 1.032 | 78.2% | 49.3% | 84.67% | −18 | −12 | ❌ |
+| E1-003-fair | +iou0.25+shelf32 | **59.16%** | **1.046** | **69.0%** | 49.2% | 84.59% | −3（669→672） | −3 | ❌ |
+| E1-iou025 | 仅 iou=0.25 | 59.16% | 1.122 | 17.5% | 49.2% | 84.59% | −3 | −3 | ❌ |
+| E2-0 | 根因审计 | — | — | — | — | — | miss 82% | miss 82% | → E2-1 |
+| E2-001 | e2weak 训练 | 待跑 | 待跑 | 待跑 | 待跑 | 待跑 | 目标 −80 | 目标 −40 | 待跑 |
+
+**E1 执行结论**：公平口径下 **未达 match≥62%**；**推荐采纳 E1-003-fair 参数减冗余**（excess 458→142），match 与基线持平。**抬 match 须进入 E2-1 分割训练**。
 
 **`wall 未匹配 Δ` 填写示例**：`−52（669→617）` 表示 wall 未匹配减少 52 个。  
 **`主导根因变化` 填写示例**：`adhesion 38%→31%（−15% 相对）` — 需 E2-0 与实验后各做一次同规模抽样标注对比（可选，E2 必做 wall/door 各 30 样本快审）。
@@ -497,8 +495,13 @@ Week 2（可选）
 | E2E 主脚本 | `transgrasp/pipelines/segment_and_classify.py` |
 | ROI 提取 | `transgrasp/pipelines/roi_extract.py` |
 | E2E 汇总 | `transgrasp/pipelines/summarize_e2e_eval.py` |
-| 未匹配导出（E2-0 待建） | `transgrasp/pipelines/export_unmatched_instances.py` |
-| E2-0 审计目录 | `outputs/e2e_improve/e2_audit/` |
+| 未匹配导出 | `transgrasp/pipelines/export_unmatched_instances.py` |
+| E1 闸门检查 | `transgrasp/pipelines/check_e1_gates.py` |
+| 执行摘要 | `outputs/e2e_improve/e2_execution_summary.md` |
+| 一键 E1 公平重跑 | `scripts/run_e1_rerun_fair.sh` |
+| E2-1 训练 | `scripts/run_e2_e2weak_train.sh` |
+| E2-2 E2E 评测 | `scripts/run_e2e_e2_eval.sh` |
+| E4 回归 | `scripts/run_e2e_regression.sh` |
 | 拒识阈值 | `transgrasp/classification/configs/reject_thresholds_p3.json` |
 | E2E 基线报告 | `outputs/e2e_segment_classify/val_full/e2e_metrics_report.md` |
 | P0 弱类审计 | `outputs/p0_weak_audit.md` |
@@ -520,3 +523,4 @@ Week 2（可选）
 |------|------|------|
 | 2026-05-26 | v1.0 | 基于 val_full E2E 实测撰写；E1～E4 分阶段方案与闸门 |
 | 2026-05-26 | v1.1 | 精细化 E1 双指标闸门；E2-0 根因 taxonomy + 可视化标注流程；实验台账增加失败案例 Δ |
+| 2026-05-26 | v1.2 | **执行 E1+E2-0**：公平口径 E1 未过 62% match；E2-0 miss 主导→推进 E2-1 |

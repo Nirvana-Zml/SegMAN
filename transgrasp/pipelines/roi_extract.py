@@ -1,8 +1,6 @@
 """Extract instance ROI crops from a semantic label map (Trans10K 11-class)."""
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import numpy as np
 from PIL import Image
 
@@ -11,32 +9,19 @@ try:
 except ImportError as e:
     raise ImportError('opencv-python is required: pip install opencv-python-headless') from e
 
-CLASSES = (
-    'background', 'box', 'bottle', 'window', 'eyeglass', 'freezer',
-    'jar_kettle', 'door', 'cup', 'wall', 'bowl', 'shelf',
+from transgrasp.pipelines.roi_postprocess import (
+    CLASSES,
+    FOREGROUND_IDS,
+    ExtractConfig,
+    InstanceROI,
+    mask_iou,
+    postprocess_instances,
 )
-FOREGROUND_IDS = tuple(range(1, len(CLASSES)))
 
-
-@dataclass
-class InstanceROI:
-    class_id: int
-    class_name: str
-    instance_id: int
-    bbox: tuple[int, int, int, int]
-    area: int
-    crop_rgb: np.ndarray
-    mask: np.ndarray
-
-    def to_dict(self) -> dict:
-        x0, y0, x1, y1 = self.bbox
-        return {
-            'class_id': self.class_id,
-            'class_name': self.class_name,
-            'instance_id': self.instance_id,
-            'bbox': [x0, y0, x1, y1],
-            'area': self.area,
-        }
+__all__ = [
+    'CLASSES', 'FOREGROUND_IDS', 'ExtractConfig', 'InstanceROI',
+    'extract_instance_rois', 'mask_iou', 'padded_bbox',
+]
 
 
 def padded_bbox(x0, y0, x1, y1, w, h, pad_ratio: float):
@@ -54,8 +39,14 @@ def extract_instance_rois(
     label: np.ndarray,
     bbox_pad: float = 0.15,
     min_area: int = 64,
+    extract_cfg: ExtractConfig | None = None,
 ) -> list[InstanceROI]:
     """Connected components per foreground class; same logic as build_roi_dataset."""
+    cfg = extract_cfg or ExtractConfig(bbox_pad=bbox_pad, min_area=min_area)
+    if extract_cfg is None:
+        cfg.bbox_pad = bbox_pad
+        cfg.min_area = min_area
+
     if label.ndim == 3:
         label = label[..., 0]
     label = label.astype(np.uint8)
@@ -74,11 +65,12 @@ def extract_instance_rois(
         for comp_id in range(1, n_comp):
             ys, xs = np.where(comp == comp_id)
             area = len(xs)
-            if area < min_area:
+            min_a = cfg.min_area_per_class.get(CLASSES[class_id], cfg.min_area)
+            if area < min_a:
                 continue
             x0, x1 = int(xs.min()), int(xs.max()) + 1
             y0, y1 = int(ys.min()), int(ys.max()) + 1
-            x0, y0, x1, y1 = padded_bbox(x0, y0, x1, y1, w, h, bbox_pad)
+            x0, y0, x1, y1 = padded_bbox(x0, y0, x1, y1, w, h, cfg.bbox_pad)
             crop = rgb[y0:y1, x0:x1]
             if crop.size == 0:
                 continue
@@ -96,12 +88,4 @@ def extract_instance_rois(
                 crop_rgb=crop,
                 mask=full_mask,
             ))
-    return instances
-
-
-def mask_iou(a: np.ndarray, b: np.ndarray) -> float:
-    inter = np.logical_and(a > 0, b > 0).sum()
-    if inter == 0:
-        return 0.0
-    union = np.logical_or(a > 0, b > 0).sum()
-    return float(inter) / float(union)
+    return postprocess_instances(instances, cfg, rgb=rgb)

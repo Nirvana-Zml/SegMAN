@@ -1,145 +1,117 @@
 #!/usr/bin/env bash
-# Plan B: coverage-accuracy + reject policy + archive summary
+# Scheme B: instance pipeline tuning (B1–B5)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-CKPT=outputs/openclip_classifier/deliver_classifier_best.pth
-OUT=outputs/openclip_classifier/plan_b
-mkdir -p "${OUT}/coverage_gt" "${OUT}/coverage_segman" "${OUT}/reject_gt" "${OUT}/reject_segman"
-mkdir -p outputs/openclip_classifier/deliver_experiment_best
+source "$(conda info --base 2>/dev/null)/etc/profile.d/conda.sh" 2>/dev/null || true
+conda activate segman 2>/dev/null || true
 
-echo "=== B2 GT coverage-accuracy ==="
-python transgrasp/classification/eval_coverage_accuracy.py \
-  --checkpoint "${CKPT}" \
-  --roi-root data/trans10k_roi_gt \
-  --split val \
-  --report-dir "${OUT}/coverage_gt"
+IMPROVE=outputs/e2e_improve
+mkdir -p "${IMPROVE}"
 
-echo "=== B2 SegMAN coverage-accuracy ==="
-python transgrasp/classification/eval_coverage_accuracy.py \
-  --checkpoint "${CKPT}" \
-  --roi-root data/trans10k_roi_segman \
-  --split val \
-  --report-dir "${OUT}/coverage_segman"
+# Shared B1+B4 pred postprocess
+B1_ARGS=(
+  --min-area 128
+  --nms-iou 0.5
+  --max-aspect-ratio 10
+  --iou-match 0.25
+  --min-area-shelf 32
+)
 
-echo "=== B3 GT reject policy ==="
-python transgrasp/classification/eval_reject_policy.py \
-  --checkpoint "${CKPT}" \
-  --roi-root data/trans10k_roi_gt \
-  --split val \
-  --class-thresholds transgrasp/classification/configs/reject_thresholds_p3.json \
-  --global-threshold 0.5 \
-  --report-dir "${OUT}/reject_gt"
+run_eval() {
+  local name="$1"
+  shift
+  echo ""
+  echo "========== ${name} =========="
+  python transgrasp/pipelines/segment_and_classify.py \
+    --eval-split val --max-images -1 \
+    --out-dir "${IMPROVE}/${name}" \
+    "${B1_ARGS[@]}" \
+    "$@"
+  python transgrasp/pipelines/summarize_e2e_eval.py --eval-dir "${IMPROVE}/${name}"
+  python transgrasp/pipelines/check_e1_gates.py --eval-dir "${IMPROVE}/${name}"
+}
 
-echo "=== B3 SegMAN reject policy ==="
-python transgrasp/classification/eval_reject_policy.py \
-  --checkpoint "${CKPT}" \
-  --roi-root data/trans10k_roi_segman \
-  --split val \
-  --class-thresholds transgrasp/classification/configs/reject_thresholds_p3.json \
-  --global-threshold 0.5 \
-  --report-dir "${OUT}/reject_segman"
+# B1+B4 deploy baseline (greedy, global iou 0.25)
+run_eval b_b1_deploy --match-algorithm greedy
 
-echo "=== B4-lite ROI predictions with reject (GT val sample) ==="
-python transgrasp/pipelines/classify_roi_with_reject.py \
-  --checkpoint "${CKPT}" \
-  --roi-root data/trans10k_roi_gt \
-  --split val \
-  --out "${OUT}/predictions_gt_val.json"
+# B2: Hungarian vs greedy
+run_eval b2_greedy --match-algorithm greedy
+run_eval b2_hungarian --match-algorithm hungarian
 
+# B3: per-class IoU thresholds (eval only)
+run_eval b3_per_class_iou \
+  --match-algorithm greedy \
+  --iou-match-per-class "door:0.25,wall:0.25,cup:0.35"
+
+# B5: CC merge wall/door
+run_eval b5_no_merge --match-algorithm greedy
+run_eval b5_merge_wd \
+  --match-algorithm greedy \
+  --merge-cc-iou 0.3 \
+  --merge-cc-classes wall,door
+
+# Combined: B2 + B5
+run_eval b_combined \
+  --match-algorithm hungarian \
+  --merge-cc-iou 0.3 \
+  --merge-cc-classes wall,door
+
+# E2-0 audit on best candidates
+for d in b_b1_deploy b2_hungarian b5_merge_wd b_combined; do
+  python transgrasp/pipelines/export_unmatched_instances.py \
+    --eval-dir "${IMPROVE}/${d}" \
+    --out-dir "${IMPROVE}/e2_audit_${d}" \
+    --sample-wall 50 --sample-door 30 2>/dev/null || true
+done
+
+# Summary ledger
 python - <<'PY'
 import json
-from datetime import date
 from pathlib import Path
 
-def load(p):
-    return json.loads(Path(p).read_text(encoding='utf-8'))
+improve = Path('outputs/e2e_improve')
+baseline = {'match_rate': 0.5932, 'pred_gt_ratio': 1.148}
+rows = []
+for name in [
+    'b_b1_deploy', 'b2_greedy', 'b2_hungarian', 'b3_per_class_iou',
+    'b5_no_merge', 'b5_merge_wd', 'b_combined',
+]:
+    d = improve / name
+    summ = d / 'summary.json'
+    gate = d / 'e1_gate_check.json'
+    if not summ.is_file():
+        continue
+    agg = json.loads(summ.read_text(encoding='utf-8')).get('aggregate', {})
+    if agg.get('num_gt_instances', 0) != 3105:
+        continue
+    g = json.loads(gate.read_text(encoding='utf-8')) if gate.is_file() else {}
+    rows.append({
+        'name': name,
+        'match_rate': agg.get('match_rate'),
+        'pred_gt_ratio': agg.get('pred_gt_ratio'),
+        'strict_e2e': agg.get('strict_e2e_all_gt'),
+        'cls_on_matched': agg.get('e2e_top1_on_matched'),
+        'E1_PASS': g.get('E1_PASS'),
+    })
 
-oc = Path('outputs/openclip_classifier')
-cov_gt = load('outputs/openclip_classifier/plan_b/coverage_gt/coverage_accuracy.json')
-cov_seg = load('outputs/openclip_classifier/plan_b/coverage_segman/coverage_accuracy.json')
-rej_gt = load('outputs/openclip_classifier/plan_b/reject_gt/reject_policy.json')
-rej_seg = load('outputs/openclip_classifier/plan_b/reject_segman/reject_policy.json')
-deliver = load('outputs/openclip_classifier/deliver_p3/deliver_manifest.json')
-
-gate = {
-    'checkpoint': 'outputs/openclip_classifier/deliver_classifier_best.pth',
-    'global_gt_acc': cov_gt['global_top1_acc'],
-    'global_segman_acc': cov_seg['global_top1_acc'],
-    'gt_acc_at_60pct_coverage': cov_gt['highlights']['acc_at_60pct_coverage'],
-    'gt_acc_at_70pct_coverage': cov_gt['highlights']['acc_at_70pct_coverage'],
-    'segman_acc_at_60pct_coverage': cov_seg['highlights']['acc_at_60pct_coverage'],
-    'gt_reject_per_class_acc': rej_gt['per_class_threshold_policy']['accuracy_on_accepted'],
-    'gt_reject_per_class_cov': rej_gt['per_class_threshold_policy']['coverage'],
-    'segman_reject_per_class_acc': rej_seg['per_class_threshold_policy']['accuracy_on_accepted'],
-    'pass_acc_78_at_cov_60_gt': cov_gt['plan_b_gates']['pass_acc_78_at_coverage_60'],
-    'pass_acc_80_at_cov_70_gt': cov_gt['plan_b_gates']['pass_acc_80_at_coverage_70'],
+best = max(rows, key=lambda r: (r['match_rate'], -abs(r['pred_gt_ratio'] - 1.05))) if rows else None
+out = {
+    'baseline': baseline,
+    'runs': rows,
+    'best': best,
+    'deploy_recommendation': {
+        'cli_args': [
+            '--min-area', '128', '--nms-iou', '0.5', '--max-aspect-ratio', '10',
+            '--iou-match', '0.25', '--min-area-shelf', '32',
+        ],
+        'note': 'B1 deploy only; do NOT enable merge_cc_iou=0.3 (B5 FAIL)',
+    },
 }
-(oc / 'plan_b' / 'gate.json').write_text(json.dumps(gate, indent=2) + '\n', encoding='utf-8')
-
-summary_md = f"""# Plan B 结题指标摘要
-
-**日期**：{date.today()}  
-**分类 deliver**：P3 `deliver_classifier_best.pth`  
-**分割**：v2@6k iter_6000.pth  
-
-## 1. 全局 Top-1（不变）
-
-| 评测集 | Acc |
-|--------|-----|
-| GT-ROI | {cov_gt['global_top1_acc']:.2%} |
-| SegMAN-ROI | {cov_seg['global_top1_acc']:.2%} |
-
-## 2. Coverage–Accuracy（B2）
-
-| 评测集 | @60% coverage Acc | @70% coverage Acc |
-|--------|-------------------|-------------------|
-| GT-ROI | {cov_gt['highlights']['acc_at_60pct_coverage']:.2%} | {cov_gt['highlights']['acc_at_70pct_coverage']:.2%} |
-| SegMAN-ROI | {cov_seg['highlights']['acc_at_60pct_coverage']:.2%} | {cov_seg['highlights']['acc_at_70pct_coverage']:.2%} |
-
-**闸门**：GT @60% coverage ≥78% → {'PASS' if gate['pass_acc_78_at_cov_60_gt'] else 'FAIL'}  
-**闸门**：GT @70% coverage ≥80% → {'PASS' if gate['pass_acc_80_at_cov_70_gt'] else 'FAIL'}
-
-## 3. 按类拒识（B3）
-
-| 策略 | GT coverage | GT acc on accepted |
-|------|-------------|-------------------|
-| 全局 τ=0.5 | {rej_gt['global_policy']['coverage']:.2%} | {rej_gt['global_policy']['accuracy_on_accepted']:.2%} |
-| 按类 τ | {rej_gt['per_class_threshold_policy']['coverage']:.2%} | {rej_gt['per_class_threshold_policy']['accuracy_on_accepted']:.2%} |
-
-| 策略 | SegMAN coverage | SegMAN acc on accepted |
-|------|-----------------|------------------------|
-| 按类 τ | {rej_seg['per_class_threshold_policy']['coverage']:.2%} | {rej_seg['per_class_threshold_policy']['accuracy_on_accepted']:.2%} |
-
-## 4. 组合验收建议
-
-| 层级 | 指标 | 结果 |
-|------|------|------|
-| 分割 mIoU | ≥80% | 81.80% ✅ |
-| GT Top-1 | ≥75% | {cov_gt['global_top1_acc']:.2%} ✅ |
-| GT Top-1 stretch | ≥80% | {cov_gt['global_top1_acc']:.2%} ❌ |
-| 高置信子集 @60% | ≥78% | {cov_gt['highlights']['acc_at_60pct_coverage']:.2%} {'✅' if gate['pass_acc_78_at_cov_60_gt'] else '❌'} |
-
-## 5. 产物
-
-- `plan_b/coverage_gt/coverage_accuracy.json`
-- `plan_b/coverage_segman/coverage_accuracy.json`
-- `plan_b/reject_gt/reject_policy.json`
-- `plan_b/reject_segman/reject_policy.json`
-- `plan_b/predictions_gt_val.json`
-- `plan_b/gate.json`
-"""
-(oc / 'deliver_experiment_best' / 'metrics_summary.md').write_text(summary_md, encoding='utf-8')
-manifest = {
-    'plan_b_date': str(date.today()),
-    'deliver': deliver,
-    'plan_b_gate': gate,
-    'coverage_gt': str(oc / 'plan_b/coverage_gt/coverage_accuracy.json'),
-    'coverage_segman': str(oc / 'plan_b/coverage_segman/coverage_accuracy.json'),
-}
-(oc / 'deliver_experiment_best' / 'manifest.json').write_text(
-    json.dumps(manifest, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
-print(json.dumps(gate, indent=2))
+Path('outputs/e2e_improve/b_plan_summary.json').write_text(
+    json.dumps(out, indent=2) + '\n', encoding='utf-8')
+print(json.dumps(out, indent=2))
 PY
 
-echo "Plan B done. See outputs/openclip_classifier/plan_b/ and deliver_experiment_best/metrics_summary.md"
+echo ""
+echo "Scheme B done. See outputs/e2e_improve/b_plan_summary.json"

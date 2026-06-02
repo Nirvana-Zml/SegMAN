@@ -74,3 +74,37 @@ class SegMANSegmentor:
         if hasattr(sem, 'cpu'):
             sem = sem.cpu().numpy()
         return np.asarray(sem, dtype=np.uint8)
+
+    def predict_label_map_tta(
+        self,
+        rgb: np.ndarray,
+        scales: tuple[float, ...] = (0.75, 1.0, 1.25),
+        flips: tuple[bool, ...] = (False, True),
+    ) -> np.ndarray:
+        """Multi-scale + horizontal flip vote fusion (scheme D4)."""
+        import cv2
+        from transgrasp.pipelines.roi_postprocess import CLASSES
+
+        n_classes = len(CLASSES)
+        h, w = rgb.shape[:2]
+        votes = np.zeros((h, w, n_classes), dtype=np.int32)
+
+        for scale in scales:
+            if abs(scale - 1.0) < 1e-6:
+                scaled = rgb
+            else:
+                nh, nw = max(int(h * scale), 1), max(int(w * scale), 1)
+                scaled = cv2.resize(rgb, (nw, nh), interpolation=cv2.INTER_LINEAR)
+
+            for flip in flips:
+                img = np.flip(scaled, axis=1).copy() if flip else scaled
+                pred = self.predict_label_map(img)
+                if flip:
+                    pred = np.flip(pred, axis=1)
+                if pred.shape[:2] != (h, w):
+                    pred = cv2.resize(
+                        pred.astype(np.uint8), (w, h), interpolation=cv2.INTER_NEAREST)
+                for cid in range(n_classes):
+                    votes[..., cid] += (pred == cid)
+
+        return np.argmax(votes, axis=-1).astype(np.uint8)
