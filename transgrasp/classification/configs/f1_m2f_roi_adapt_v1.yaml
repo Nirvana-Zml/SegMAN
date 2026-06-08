@@ -1,0 +1,20 @@
+# F1 P1: adapt OpenCLIP on M2F-matched GT-labeled ROIs (freeze head-only first pass)
+roi_root: data/trans10k_roi_m2f
+work_dir: outputs/openclip_classifier/m2f_roi_adapt_v1
+resume: outputs/openclip_classifier/deliver_classifier_best.pth
+clip_model: ViT-B-16
+clip_pretrained: laion2b_s34b_b88k
+head: linear
+freeze_clip: true
+unfreeze_last_blocks: 0
+epochs: 20
+batch_size: 64
+lr: 1.0e-3
+head_lr: 1.0e-3
+weight_decay: 0.01
+label_smoothing: 0.1
+patience: 5
+no_class_weights: true
+aug: p3
+cutmix_prob: 0.3
+seed: 42

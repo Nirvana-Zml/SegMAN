@@ -1,0 +1,29 @@
+{
+  "class_names": [
+    "box",
+    "bottle",
+    "window",
+    "eyeglass",
+    "freezer",
+    "jar_kettle",
+    "door",
+    "cup",
+    "wall",
+    "bowl",
+    "shelf"
+  ],
+  "per_class_recall_on_diagonal": {
+    "box": 0.6477272727272727,
+    "bottle": 0.7892376681614349,
+    "window": 0.4230769230769231,
+    "eyeglass": 0.9347826086956522,
+    "freezer": 0.6,
+    "jar_kettle": 0.6390977443609023,
+    "door": 0.6440422322775264,
+    "cup": 0.9316939890710383,
+    "wall": 0.8488372093023255,
+    "bowl": 0.6842105263157895,
+    "shelf": 0.45161290322580644
+  },
+  "total_samples": 3105
+}

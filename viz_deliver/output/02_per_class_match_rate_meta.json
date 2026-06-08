@@ -1,0 +1,54 @@
+{
+  "classes": [
+    "wall",
+    "door",
+    "cup",
+    "bottle",
+    "jar_kettle",
+    "window",
+    "eyeglass",
+    "box",
+    "shelf",
+    "bowl",
+    "freezer"
+  ],
+  "mode_a_match_rate": {
+    "wall": 47.910000000000004,
+    "door": 45.4,
+    "cup": 94.26,
+    "bottle": 78.92,
+    "jar_kettle": 80.45,
+    "window": 56.15,
+    "eyeglass": 89.13,
+    "box": 64.77000000000001,
+    "shelf": 53.23,
+    "bowl": 81.58,
+    "freezer": 70.0
+  },
+  "mode_b_match_rate": {
+    "wall": 68.53,
+    "door": 69.38,
+    "cup": 97.27,
+    "bottle": 87.44,
+    "jar_kettle": 88.72,
+    "window": 69.23,
+    "eyeglass": 89.13,
+    "box": 76.14,
+    "shelf": 72.58,
+    "bowl": 78.95,
+    "freezer": 80.0
+  },
+  "gt_instances": {
+    "wall": 1290,
+    "door": 663,
+    "cup": 366,
+    "bottle": 223,
+    "jar_kettle": 133,
+    "window": 130,
+    "eyeglass": 92,
+    "box": 88,
+    "shelf": 62,
+    "bowl": 38,
+    "freezer": 20
+  }
+}

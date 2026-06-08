@@ -1,0 +1,151 @@
+{
+  "classes": [
+    "wall",
+    "door",
+    "cup",
+    "bottle",
+    "jar_kettle",
+    "window",
+    "eyeglass",
+    "box",
+    "shelf",
+    "bowl",
+    "freezer"
+  ],
+  "gt_roi": {
+    "wall": {
+      "support": 1290,
+      "precision": 0.751,
+      "recall": 0.8488,
+      "f1": 0.7969
+    },
+    "door": {
+      "support": 663,
+      "precision": 0.6898,
+      "recall": 0.644,
+      "f1": 0.6661
+    },
+    "cup": {
+      "support": 366,
+      "precision": 0.9216,
+      "recall": 0.9317,
+      "f1": 0.9266
+    },
+    "bottle": {
+      "support": 223,
+      "precision": 0.8,
+      "recall": 0.7892,
+      "f1": 0.7946
+    },
+    "jar_kettle": {
+      "support": 133,
+      "precision": 0.8095,
+      "recall": 0.6391,
+      "f1": 0.7143
+    },
+    "window": {
+      "support": 130,
+      "precision": 0.7237,
+      "recall": 0.4231,
+      "f1": 0.534
+    },
+    "eyeglass": {
+      "support": 92,
+      "precision": 0.9348,
+      "recall": 0.9348,
+      "f1": 0.9348
+    },
+    "box": {
+      "support": 88,
+      "precision": 0.7308,
+      "recall": 0.6477,
+      "f1": 0.6867
+    },
+    "shelf": {
+      "support": 62,
+      "precision": 0.6087,
+      "recall": 0.4516,
+      "f1": 0.5185
+    },
+    "bowl": {
+      "support": 38,
+      "precision": 0.9286,
+      "recall": 0.6842,
+      "f1": 0.7879
+    },
+    "freezer": {
+      "support": 20,
+      "precision": 0.9231,
+      "recall": 0.6,
+      "f1": 0.7273
+    }
+  },
+  "segman_roi": {
+    "wall": {
+      "support": 1335,
+      "precision": 0.7059,
+      "recall": 0.7318,
+      "f1": 0.7186
+    },
+    "door": {
+      "support": 577,
+      "precision": 0.4556,
+      "recall": 0.6222,
+      "f1": 0.526
+    },
+    "cup": {
+      "support": 403,
+      "precision": 0.935,
+      "recall": 0.8561,
+      "f1": 0.8938
+    },
+    "bottle": {
+      "support": 196,
+      "precision": 0.6955,
+      "recall": 0.8622,
+      "f1": 0.7699
+    },
+    "jar_kettle": {
+      "support": 146,
+      "precision": 0.7328,
+      "recall": 0.5822,
+      "f1": 0.6489
+    },
+    "window": {
+      "support": 122,
+      "precision": 0.5312,
+      "recall": 0.418,
+      "f1": 0.4679
+    },
+    "eyeglass": {
+      "support": 91,
+      "precision": 0.9643,
+      "recall": 0.8901,
+      "f1": 0.9257
+    },
+    "box": {
+      "support": 131,
+      "precision": 0.7206,
+      "recall": 0.374,
+      "f1": 0.4925
+    },
+    "shelf": {
+      "support": 133,
+      "precision": 0.6512,
+      "recall": 0.2105,
+      "f1": 0.3182
+    },
+    "bowl": {
+      "support": 60,
+      "precision": 1.0,
+      "recall": 0.4833,
+      "f1": 0.6517
+    },
+    "freezer": {
+      "support": 39,
+      "precision": 0.6923,
+      "recall": 0.2308,
+      "f1": 0.3462
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "mode_a": {
+    "match_rate": 0.5916,
+    "cls_on_matched": 0.8459,
+    "strict_e2e": 0.5005,
+    "wall_match": 0.4791
+  },
+  "mode_b": {
+    "match_rate": 0.7546,
+    "cls_on_matched": 0.8178,
+    "strict_e2e": 0.6171,
+    "wall_match": 0.6853
+  },
+  "figures": [
+    "D:\\SegMAN-main\\SegMAN\\viz_deliver\\output\\01_dual_track_e2e_bar.png",
+    "D:\\SegMAN-main\\SegMAN\\viz_deliver\\output\\01_dual_track_e2e_radar.png"
+  ]
+}
